@@ -1,0 +1,27 @@
+{
+  "name": "anchorage-parcel-lake",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Daily scraper for the Municipality of Anchorage property database into a local DuckLake with full history",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "ingest": "tsx src/ingest.ts",
+    "dq": "tsx src/dq.ts",
+    "daily": "tsx src/ingest.ts && tsx src/dq.ts",
+    "sql": "tsx src/sql.ts",
+    "test": "tsx test/merge.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "^1.4.0-r.2",
+    "pino": "^9.6.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
