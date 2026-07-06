@@ -28,11 +28,17 @@
  * How exemptions relate to taxable value:
  *
  * - `taxable_value` = `appraised_total_value` − `total_exemptions`, exactly,
- *   on every parcel — with two quirks. When the difference is 0 (fully
- *   exempt or zero-value parcels) the column holds either 0 or NULL, so
- *   compare through coalesce(taxable_value, 0). And it goes *negative* on a
- *   handful of over-exempted parcels (6 on 2026-07-05, e.g. a senior
- *   exemption capped above a low appraised value).
+ *   on every parcel — with two quirks. First, a zero difference is stored
+ *   two distinct ways, and the split is meaningful (verified disjoint
+ *   against the live layer on 2026-07-06): NULL means the parcel is
+ *   *unvalued* — no appraisal and no exemptions (rights-of-way, condo
+ *   master records; 1,136 parcels) — while an explicit 0 means *valued but
+ *   fully exempted* — appraised > 0, entirely offset by exemptions (5,901
+ *   parcels). The importer deliberately preserves that NULL; use
+ *   coalesce(taxable_value, 0) for arithmetic, `IS NULL` to find unvalued
+ *   parcels. Second, it goes *negative* on a handful of over-exempted
+ *   parcels (6 on 2026-07-05, e.g. a senior exemption capped above a low
+ *   appraised value).
  * - `net_taxable_value` (upstream `NetTaxableValue`) is never NULL and never
  *   negative, and equals greatest(taxable_value, 0) on 99.86% of parcels.
  *   On the rest (134 on 2026-07-05, skewed toward high-value parcels —

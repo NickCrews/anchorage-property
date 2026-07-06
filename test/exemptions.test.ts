@@ -167,22 +167,37 @@ it("taxable_value = appraised_total_value - total_exemptions", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// The two quirks of taxable_value the formula test coalesces over:
-// NULL stands only for a zero difference (1,136 NULLs vs 5,901 explicit
-// zeros on 2026-07-05), and over-exempted parcels drive it negative —
-// legitimately, but only ever a handful (6 on 2026-07-05).
-it("taxable_value is NULL only for fully-exempt parcels, negative only rarely", async () => {
+// The two quirks of taxable_value the formula test coalesces over. A zero
+// difference is stored two distinct ways, and the split is meaningful:
+// NULL marks an *unvalued* parcel (no appraisal, no exemptions — 1,136 on
+// 2026-07-05) while an explicit 0 marks a *valued but fully exempted* one
+// (appraised > 0 offset by exemptions — 5,901). The populations are disjoint
+// upstream (verified 2026-07-06) and the importer preserves the NULL. And
+// over-exempted parcels drive it negative — legitimately, but only ever a
+// handful (6 on 2026-07-05).
+it("taxable_value: NULL means unvalued, 0 means fully exempted, negative only rarely", async () => {
   const r = await one(
     `SELECT count(*) FILTER (
        taxable_value IS NULL
-       AND abs(coalesce(appraised_total_value, 0) - coalesce(total_exemptions, 0)) > 0.005
+       AND (coalesce(appraised_total_value, 0) <> 0 OR coalesce(total_exemptions, 0) <> 0)
      ) AS bad_nulls,
+     count(*) FILTER (
+       taxable_value = 0 AND coalesce(total_exemptions, 0) = 0
+     ) AS bad_zeros,
      count(*) FILTER (taxable_value < 0) AS negatives
      FROM lake.parcels_current`,
   );
   const badNulls = Number(r.bad_nulls);
+  const badZeros = Number(r.bad_zeros);
   const negatives = Number(r.negatives);
-  expect(badNulls, `${badNulls} parcels have NULL taxable_value but a nonzero difference`).toBe(0);
+  expect(
+    badNulls,
+    `${badNulls} parcels have NULL taxable_value but an appraisal or exemptions (NULL should mean unvalued)`,
+  ).toBe(0);
+  expect(
+    badZeros,
+    `${badZeros} parcels have an explicit 0 taxable_value without exemptions (0 should mean fully exempted)`,
+  ).toBe(0);
   expect(
     negatives,
     `${negatives} parcels have negative taxable_value, expected a handful (~6)`,

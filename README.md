@@ -94,8 +94,12 @@ variants when only the land is exempt), slot 5 is the personal ones (senior
 citizen, disabled veteran, military widow(er)), slot 6 is only ever
 `'OWNERS PRIMARY RESIDENCE'`, and `total_exemptions` is exactly their sum.
 Exemptions are what separates appraised from taxable: `taxable_value` is
-exactly `appraised_total_value - total_exemptions` (NULL when that difference
-is zero, and negative on a handful of over-exempted parcels), while
+exactly `appraised_total_value - total_exemptions`. A zero difference is
+stored two distinct ways, and the distinction is meaningful: NULL means the
+parcel is *unvalued* (no appraisal, no exemptions — rights-of-way, condo
+master records), while an explicit 0 means *valued but fully exempted*
+(appraised > 0, entirely offset by exemptions). It also goes negative on a
+handful of over-exempted parcels. Meanwhile
 `net_taxable_value` floors it at zero but on ~0.1% of (often high-value)
 parcels carries a tax-roll number the other columns can't reproduce — prefer
 `taxable_value` when relating values to exemptions.
