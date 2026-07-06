@@ -73,6 +73,20 @@ WHERE n.valid_from > (now() AT TIME ZONE 'UTC') - INTERVAL 90 DAY
   AND o.owner_name IS DISTINCT FROM n.owner_name;
 ```
 
+Is a parcel in Girdwood or the rest of the muni? Tax district `4` is the
+Girdwood Valley Service Area, which also catches the ~290 Girdwood parcels
+with no site address (`gis_site_city IS NULL`, mostly vacant land):
+
+```sql
+SELECT parcel_id, parcel_address,
+  CASE WHEN tax_district = '4' THEN 'Girdwood' ELSE 'Rest of the Muni' END AS area
+FROM lake.parcels_current;
+```
+
+Is a parcel residential? `property_type` is the appraisal grouping and is
+always exactly `'Residential'` or `'Commercial'`; use `land_use` when you
+need finer grain (single-family, condo, duplex, ...):
+
 Spatial — parcels within 500 m of a point, with owner (needs `LOAD spatial`):
 
 ```sql

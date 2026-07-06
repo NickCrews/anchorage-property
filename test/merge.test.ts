@@ -3,11 +3,14 @@
  * snapshots — no network. Verifies: new/changed/retired/unchanged detection,
  * multi-part geometry union, point-in-time ("owner as of") queries, and
  * idempotent re-merge.
+ *
+ * The tests in this file are sequential and share the lake: each stage builds
+ * on the merges performed by the ones before it.
  */
-import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterAll, beforeAll, expect, it } from "vitest";
 import { lakePaths } from "../src/config.js";
 import { ensureSchema, openLake, rowObjects, scalar } from "../src/lake.js";
 import { mergeSnapshot, stageSnapshot } from "../src/pipeline.js";
@@ -65,11 +68,23 @@ function writeSnapshot(name: string, parcels: FakeParcel[]): string {
 }
 
 const { catalog, dataPath } = lakePaths(lakeDir);
-const lake = await openLake({ catalog, data: { kind: "local", dir: dataPath } });
-try {
-  await ensureSchema(lake.conn);
+let lake: Awaited<ReturnType<typeof openLake>>;
 
-  // T1: three parcels, P2 is a two-part parcel.
+// T2 snapshot path is written in T1's test and re-used by the idempotence test.
+let t2: string;
+
+beforeAll(async () => {
+  lake = await openLake({ catalog, data: { kind: "local", dir: dataPath } });
+  await ensureSchema(lake.conn);
+});
+
+afterAll(async () => {
+  await lake?.close();
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+});
+
+it("T1: first merge treats every parcel as new", async () => {
+  // Three parcels, P2 is a two-part parcel.
   const t1 = writeSnapshot("t1", [
     { id: "P1", owner: "ALICE", value: 100_000 },
     { id: "P2", owner: "BOB", value: 200_000, parts: 2, lon: -149.8 },
@@ -77,38 +92,45 @@ try {
   ]);
   await stageSnapshot(lake.conn, t1);
   const m1 = await mergeSnapshot(lake.conn, "2024-07-01T00:00:00.000Z");
-  assert.deepEqual(
-    [m1.distinctParcels, m1.newParcels, m1.changedParcels, m1.retiredParcels, m1.unchangedParcels],
-    [3, 3, 0, 0, 0],
-    "T1: everything is new",
-  );
+  expect([
+    m1.distinctParcels,
+    m1.newParcels,
+    m1.changedParcels,
+    m1.retiredParcels,
+    m1.unchangedParcels,
+  ]).toEqual([3, 3, 0, 0, 0]);
+});
 
+it("multi-part parcel collapses to one row with unioned geometry", async () => {
   const p2 = await rowObjects(
     lake.conn,
     `SELECT feature_count, round(area_m2) AS area_m2 FROM lake.parcels_current WHERE parcel_id = 'P2'`,
   );
-  assert.equal(p2.length, 1, "multi-part parcel collapses to one row");
-  assert.equal(Number(p2[0]!.feature_count), 2, "P2 merged from 2 source features");
-  assert.ok(Number(p2[0]!.area_m2) > 1000, "unioned area is the sum of both squares");
+  expect(p2).toHaveLength(1);
+  expect(Number(p2[0]!.feature_count)).toBe(2);
+  // Unioned area is the sum of both squares.
+  expect(Number(p2[0]!.area_m2)).toBeGreaterThan(1000);
+});
 
-  // T2 (two years later): P1 sold to DAVE, P2 unchanged, P3 retired, P4 new.
-  const t2 = writeSnapshot("t2", [
+it("T2: detects new, changed, retired, and unchanged parcels", async () => {
+  // Two years later: P1 sold to DAVE, P2 unchanged, P3 retired, P4 new.
+  t2 = writeSnapshot("t2", [
     { id: "P1", owner: "DAVE", value: 150_000 },
     { id: "P2", owner: "BOB", value: 200_000, parts: 2, lon: -149.8 },
     { id: "P4", owner: "ERIN", value: 400_000, lon: -149.6 },
   ]);
   await stageSnapshot(lake.conn, t2);
   const m2 = await mergeSnapshot(lake.conn, "2026-07-01T00:00:00.000Z");
-  assert.deepEqual(
-    [m2.newParcels, m2.changedParcels, m2.retiredParcels, m2.unchangedParcels],
-    [1, 1, 1, 1],
-    "T2: P4 new, P1 changed, P3 retired, P2 unchanged",
-  );
+  expect([m2.newParcels, m2.changedParcels, m2.retiredParcels, m2.unchangedParcels]).toEqual([
+    1, 1, 1, 1,
+  ]);
 
-  assert.equal(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels`)), 5, "3 + 2 version rows");
-  assert.equal(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels_current`)), 3);
+  // 3 + 2 version rows, 3 current.
+  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels`))).toBe(5);
+  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels_current`))).toBe(3);
+});
 
-  // Point-in-time: who owned P1 two years ago vs now?
+it("point-in-time queries see historical owners", async () => {
   const asOf = (ts: string, id: string) =>
     scalar<string>(
       lake.conn,
@@ -116,23 +138,17 @@ try {
        WHERE parcel_id = '${id}' AND valid_from <= TIMESTAMP '${ts}'
          AND (valid_to IS NULL OR valid_to > TIMESTAMP '${ts}')`,
     );
-  assert.equal(await asOf("2025-01-01", "P1"), "ALICE", "P1 owned by ALICE in 2025");
-  assert.equal(await asOf("2026-07-02", "P1"), "DAVE", "P1 owned by DAVE after the sale");
-  assert.equal(await asOf("2025-01-01", "P3"), "CARO", "P3 existed in 2025");
-  assert.equal(await asOf("2026-07-02", "P3"), undefined, "P3 retired by 2026");
+  expect(await asOf("2025-01-01", "P1")).toBe("ALICE");
+  expect(await asOf("2026-07-02", "P1")).toBe("DAVE");
+  expect(await asOf("2025-01-01", "P3")).toBe("CARO");
+  expect(await asOf("2026-07-02", "P3")).toBeUndefined();
+});
 
-  // Idempotence: merging the same snapshot again changes nothing.
+it("re-merging the same snapshot is a no-op", async () => {
   await stageSnapshot(lake.conn, t2);
   const m3 = await mergeSnapshot(lake.conn, "2026-07-02T00:00:00.000Z");
-  assert.deepEqual(
-    [m3.newParcels, m3.changedParcels, m3.retiredParcels, m3.unchangedParcels],
-    [0, 0, 0, 3],
-    "re-merge is a no-op",
-  );
-  assert.equal(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels`)), 5, "still 5 rows");
-
-  console.log("merge.test.ts: all assertions passed");
-} finally {
-  await lake.close();
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-}
+  expect([m3.newParcels, m3.changedParcels, m3.retiredParcels, m3.unchangedParcels]).toEqual([
+    0, 0, 0, 3,
+  ]);
+  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels`))).toBe(5);
+});
