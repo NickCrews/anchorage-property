@@ -1,5 +1,5 @@
 import { DuckDBConnection } from "@duckdb/node-api";
-import { config } from "./config.js";
+import { config, resolveLakeOptions } from "./config.js";
 import { logger } from "./logger.js";
 import { openLake, rowObjects, scalar } from "./lake.js";
 
@@ -221,7 +221,7 @@ async function runCheck(conn: DuckDBConnection, check: Check) {
 
 async function main() {
   logger.info({ event: "dq_start", lakeDir: config.lakeDir, checks: CHECKS.length });
-  const lake = await openLake(config.lakeDir);
+  const lake = await openLake(resolveLakeOptions());
   try {
     const stats = await rowObjects(
       lake.conn,

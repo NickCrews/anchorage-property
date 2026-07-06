@@ -37,6 +37,10 @@ npm test         # offline SCD2 merge test against a throwaway lake
 npm run sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"   # ad-hoc queries
 ```
 
+Each command has a `:prod` variant (`ingest:prod`, `dq:prod`, `daily:prod`,
+`sql:prod`) that loads `.env` and operates on the public R2 lake instead of the
+local dev lake — see [Publishing to Cloudflare R2](#publishing-to-cloudflare-r2).
+
 All commands emit structured JSON logs (pino) on stdout — one event per line
 (`fetch_progress`, `merge_start`, `ingest_done`, `dq_check`, ...). Pipe through
 `npx pino-pretty` when reading by hand. `LOG_LEVEL=debug` adds per-page detail.
@@ -54,9 +58,10 @@ running it more often than the source updates is harmless.
 ## Layout
 
 ```
-data/lake/catalog.ducklake   DuckLake catalog (DuckDB file, gitignored)
-data/lake/parquet/           parquet data files
-data/raw/<run-id>/           raw NDJSON pages (deleted after success; KEEP_RAW=1 to retain)
+data/lake/catalog.ducklake      DuckLake catalog, dev lake (DuckDB file, gitignored)
+data/lake/parquet/              parquet data files, dev lake
+data/lake-r2/catalog.ducklake   catalog of the public R2 lake (writer's copy; parquet lives in the bucket)
+data/raw/<run-id>/              raw NDJSON pages (deleted after success; KEEP_RAW=1 to retain)
 ```
 
 ### Tables
@@ -128,6 +133,56 @@ WHERE ST_DWithin(
   500);
 ```
 
+## Publishing to Cloudflare R2
+
+The lake can be served as a [public read-only DuckLake](https://ducklake.select/docs/stable/duckdb/guides/public_ducklake_on_object_storage):
+anyone can query it over HTTPS with no credentials.
+
+How it works (`LAKE_TARGET=r2`, set via `.env` for the `:prod` scripts):
+
+- The writer works on a local copy of the catalog at
+  `data/lake-r2/catalog.ducklake`. If that file is missing (fresh checkout,
+  ephemeral CI runner), it is first restored by downloading `catalog.ducklake`
+  from the bucket; only if the bucket has none either (very first run) is a new
+  catalog created, with the bucket's **public `https://` URL** as its persisted
+  data path (what readers resolve parquet paths against; DuckLake stores file
+  paths relative to it and [doesn't allow changing it
+  later](https://ducklake.select/docs/stable/duckdb/guides/using_a_remote_data_path)).
+- Each session attaches with `OVERRIDE_DATA_PATH` pointing at the same prefix
+  via the authenticated `r2://` endpoint, so the merge writes parquet directly
+  into the bucket.
+- After a successful merge, the catalog file is uploaded to the bucket as
+  `catalog.ducklake`. That single PUT is the atomic publish — readers never see
+  a catalog that references parquet files not yet uploaded.
+
+One-time setup:
+
+1. Cloudflare dashboard → R2 (requires a payment method on file; this lake fits
+   comfortably in the free tier) → create bucket.
+2. Bucket → Settings → Public access → enable the `r2.dev` subdomain (or attach
+   a custom domain — decide **before** the first prod run, the URL is baked into
+   the catalog).
+3. R2 → Manage API tokens → create a token with **Object Read & Write** scoped
+   to the bucket.
+4. `cp .env.example .env` and fill in bucket, account ID, token keys, public URL.
+5. `npm run daily:prod` — bootstraps the catalog, backfills the full layer,
+   publishes.
+
+Anyone can then query it from any DuckDB (spatial queries need `LOAD spatial`):
+
+```sql
+INSTALL ducklake;
+ATTACH 'ducklake:https://<public-url>/catalog.ducklake' AS lake;
+SELECT count(*) FROM lake.parcels_current;
+```
+
+To also query it from browser-based clients (e.g. [shell.duckdb.org](https://shell.duckdb.org)),
+add a CORS policy on the bucket (Settings → CORS) allowing `GET` from the
+origins you care about.
+
+The dev and prod lakes are fully independent: `npm run ingest` never touches
+R2, and the prod lake's history starts at its own first ingest.
+
 ## Data quality
 
 `npm run dq` runs 22 checks against the production lake, each `error`
@@ -148,6 +203,7 @@ compare against `now() AT TIME ZONE 'UTC'`, never local time.
 - The SCD2 merge runs in a single DuckLake transaction — a crash mid-merge
   leaves the lake at the previous snapshot.
 
-Config via env vars: `LAKE_DIR`, `RAW_DIR`, `KEEP_RAW`, `PAGE_SIZE`,
-`FETCH_CONCURRENCY`, `FETCH_RETRIES`, `FETCH_TIMEOUT_MS`, `MIN_SNAPSHOT_RATIO`,
-`ALLOW_SHRINK`, `LOG_LEVEL`, `MOA_SERVICE_URL`.
+Config via env vars: `LAKE_TARGET`, `LAKE_DIR`, `RAW_DIR`, `KEEP_RAW`,
+`PAGE_SIZE`, `FETCH_CONCURRENCY`, `FETCH_RETRIES`, `FETCH_TIMEOUT_MS`,
+`MIN_SNAPSHOT_RATIO`, `ALLOW_SHRINK`, `LOG_LEVEL`, `MOA_SERVICE_URL`, and the
+`R2_*` variables in `.env.example`.

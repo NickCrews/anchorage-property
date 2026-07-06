@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { lakePaths } from "../src/config.js";
 import { ensureSchema, openLake, rowObjects, scalar } from "../src/lake.js";
 import { mergeSnapshot, stageSnapshot } from "../src/pipeline.js";
 
@@ -63,7 +64,8 @@ function writeSnapshot(name: string, parcels: FakeParcel[]): string {
   return path.join(dir, "*.ndjson");
 }
 
-const lake = await openLake(lakeDir);
+const { catalog, dataPath } = lakePaths(lakeDir);
+const lake = await openLake({ catalog, data: { kind: "local", dir: dataPath } });
 try {
   await ensureSchema(lake.conn);
 

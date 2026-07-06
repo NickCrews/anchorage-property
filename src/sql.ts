@@ -2,7 +2,7 @@
  * Ad-hoc SQL against the lake:  npm run sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"
  * (Works regardless of the standalone duckdb CLI's DuckLake catalog version.)
  */
-import { config } from "./config.js";
+import { resolveLakeOptions } from "./config.js";
 import { openLake, rowObjects } from "./lake.js";
 
 const sql = process.argv[2];
@@ -11,7 +11,7 @@ if (!sql) {
   process.exit(2);
 }
 
-const lake = await openLake(config.lakeDir);
+const lake = await openLake(resolveLakeOptions());
 try {
   const rows = await rowObjects(lake.conn, sql);
   const plain = (v: unknown): unknown => {

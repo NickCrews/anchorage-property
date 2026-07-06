@@ -9,14 +9,19 @@
   },
   "scripts": {
     "ingest": "tsx src/ingest.ts",
+    "ingest:prod": "node --env-file=.env --import tsx src/ingest.ts",
     "dq": "tsx src/dq.ts",
+    "dq:prod": "node --env-file=.env --import tsx src/dq.ts",
     "daily": "tsx src/ingest.ts && tsx src/dq.ts",
+    "daily:prod": "node --env-file=.env --import tsx src/ingest.ts && node --env-file=.env --import tsx src/dq.ts",
     "sql": "tsx src/sql.ts",
+    "sql:prod": "node --env-file=.env --import tsx src/sql.ts",
     "test": "tsx test/merge.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.4.0-r.2",
+    "aws4fetch": "^1.0.20",
     "pino": "^9.6.0",
     "tsx": "^4.19.0"
   },

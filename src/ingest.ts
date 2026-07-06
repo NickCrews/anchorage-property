@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { config } from "./config.js";
+import { config, resolveLakeOptions } from "./config.js";
 import { logger } from "./logger.js";
 import { fetchAllParcels } from "./arcgis.js";
 import { ensureSchema, openLake } from "./lake.js";
 import { assertSnapshotSane, mergeSnapshot, recordRun, stageSnapshot } from "./pipeline.js";
+import { publishCatalog, restoreCatalog } from "./publish.js";
 
 /**
  * Daily ingest: download the full MOA property layer, collapse it to one row
@@ -17,7 +18,12 @@ async function main() {
   const runId = `${startedAtIso.slice(0, 10)}-${randomUUID().slice(0, 8)}`;
   const rawRunDir = path.join(config.rawDir, runId);
   const log = logger.child({ runId });
-  log.info({ event: "ingest_start", serviceUrl: config.serviceUrl, lakeDir: config.lakeDir });
+  log.info({
+    event: "ingest_start",
+    serviceUrl: config.serviceUrl,
+    lakeDir: config.lakeDir,
+    lakeTarget: config.lakeTarget,
+  });
 
   const fetchResult = await fetchAllParcels({
     serviceUrl: config.serviceUrl,
@@ -34,7 +40,14 @@ async function main() {
     );
   }
 
-  const lake = await openLake(config.lakeDir);
+  const lakeOpts = resolveLakeOptions();
+  // Ephemeral runners start without data/lake-r2/: continue the published lake
+  // rather than forking a fresh one. createIfMissing covers the very first
+  // run, when the bucket has no catalog either (restoreCatalog returns false).
+  if (lakeOpts.data.kind === "r2" && !fs.existsSync(lakeOpts.catalog)) {
+    await restoreCatalog(lakeOpts.catalog);
+  }
+  const lake = await openLake({ ...lakeOpts, createIfMissing: true });
   try {
     await ensureSchema(lake.conn);
 
@@ -62,6 +75,10 @@ async function main() {
     });
   } finally {
     await lake.close();
+  }
+
+  if (lakeOpts.data.kind === "r2") {
+    await publishCatalog(lakeOpts.catalog);
   }
 
   if (!config.keepRaw) {
