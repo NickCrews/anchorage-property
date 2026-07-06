@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@duckdb/node-api": "^1.4.0-r.2",
+    "@duckdb/node-api": "^1.5.4-r.1",
     "aws4fetch": "^1.0.20",
     "pino": "^9.6.0",
     "tsx": "^4.19.0"
