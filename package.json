@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Daily scraper for the Municipality of Anchorage property database into a local DuckLake with full history",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -10,10 +11,9 @@
   "scripts": {
     "ingest": "tsx src/ingest.ts",
     "ingest:prod": "node --env-file=.env --import tsx src/ingest.ts",
-    "dq": "tsx src/dq.ts",
-    "dq:prod": "node --env-file=.env --import tsx src/dq.ts",
-    "daily": "tsx src/ingest.ts && tsx src/dq.ts",
-    "daily:prod": "node --env-file=.env --import tsx src/ingest.ts && node --env-file=.env --import tsx src/dq.ts",
+    "dq": "vitest run test/dq.test.ts",
+    "daily": "tsx src/ingest.ts && LAKE_ATTACH=ducklake:data/lake/catalog.ducklake vitest run test/dq.test.ts",
+    "daily:prod": "node --env-file=.env --import tsx src/ingest.ts && LAKE_ATTACH=ducklake:data/lake-r2/catalog.ducklake vitest run test/dq.test.ts",
     "sql": "tsx src/sql.ts",
     "sql:prod": "node --env-file=.env --import tsx src/sql.ts",
     "test": "vitest run test/merge.test.ts",

@@ -31,18 +31,18 @@ Change detection is driven by `attr_hash` — md5 over all metadata + geometry.
 npm install
 
 npm run ingest   # fetch full layer → SCD2-merge into the lake (the cron command)
-npm run dq       # data-quality suite over the prod lake (exit 1 on error-severity failures)
-npm run daily    # ingest + dq in one shot
+npm run dq       # data-quality suite (vitest) over the published lake; LAKE_ATTACH overrides
+npm run daily    # ingest + dq over the local lake in one shot
 npm test         # offline SCD2 merge test against a throwaway lake
 npm run sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"   # ad-hoc queries
 ```
 
-Each command has a `:prod` variant (`ingest:prod`, `dq:prod`, `daily:prod`,
-`sql:prod`) that loads `.env` and operates on the public R2 lake instead of the
+Each command has a `:prod` variant (`ingest:prod`, `daily:prod`, `sql:prod`)
+that loads `.env` and operates on the public R2 lake instead of the
 local dev lake — see [Publishing to Cloudflare R2](#publishing-to-cloudflare-r2).
 
 All commands emit structured JSON logs (pino) on stdout — one event per line
-(`fetch_progress`, `merge_start`, `ingest_done`, `dq_check`, ...). Pipe through
+(`fetch_progress`, `merge_start`, `ingest_done`, ...). Pipe through
 `npx pino-pretty` when reading by hand. `LOG_LEVEL=debug` adds per-page detail.
 
 ### Cron
@@ -121,14 +121,17 @@ R2, and the prod lake's history starts at its own first ingest.
 
 ## Data quality
 
-`npm run dq` runs 22 checks against the production lake, each `error`
+`npm run dq` runs [test/dq.test.ts](test/dq.test.ts) — 22 checks, each `error`
 (impossible states: duplicate current rows, overlapping validity intervals,
 missing geometry, missing owner on a positive-value parcel, negative values,
 parcels outside the Anchorage bbox, stale ingest) or `warn` with an allowance
 for real-world dirtiness verified in the source (a couple of ~1 m² sliver
-parcels, a few OGC-invalid rings). Error-severity failures exit non-zero so
-cron/CI can alert. All timestamps are naive UTC throughout — DQ time checks
-compare against `now() AT TIME ZONE 'UTC'`, never local time.
+parcels, a few OGC-invalid rings). Error-severity failures fail the vitest run
+so cron/CI can alert; warn-severity overruns log a warning but still pass. By
+default the suite attaches the published lake over HTTPS like the other tests;
+`npm run daily` / `daily:prod` point `LAKE_ATTACH` at the catalog the ingest
+just wrote. All timestamps are naive UTC throughout — DQ time checks compare
+against `now() AT TIME ZONE 'UTC'`, never local time.
 
 ## Safety rails
 

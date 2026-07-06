@@ -41,6 +41,10 @@ jobs:
       - name: Ingest
         run: npm run ingest
 
-      # Exits non-zero when an error-level check fails, failing the workflow.
+      # Vitest suite; error-severity checks fail the workflow. Attaches the
+      # catalog the ingest just left on disk (its stored data path resolves
+      # parquet over the bucket's public URL, so no R2 credentials are used).
       - name: Data quality checks
         run: npm run dq
+        env:
+          LAKE_ATTACH: ducklake:data/lake-r2/catalog.ducklake

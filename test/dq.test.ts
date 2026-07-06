@@ -1,24 +1,31 @@
-import { DuckDBConnection } from "@duckdb/node-api";
-import { config, resolveLakeOptions } from "./config.js";
-import { logger } from "./logger.js";
-import { openLake, rowObjects, scalar } from "./lake.js";
-
 /**
- * Data-quality suite over the production lake. Each check's SQL returns the
- * number of VIOLATING rows; the check passes when that count is <= allowance.
+ * Data-quality suite over the lake. Each check's SQL returns the number of
+ * VIOLATING rows; the check passes when that count is <= allowance.
  *
- * severity 'error'  → known-impossible states; any failure exits non-zero.
+ * severity 'error'  → known-impossible states; the test fails.
  * severity 'warn'   → real-world dirtiness we tolerate up to an allowance
  *                     (e.g. a couple of genuine ~1 m² sliver parcels and a
- *                     handful of OGC-invalid rings in the source).
+ *                     handful of OGC-invalid rings in the source); beyond the
+ *                     allowance a warning is logged but the test still passes.
+ *
+ * Runs against the published lake over HTTPS by default, so it needs network.
+ * Point LAKE_ATTACH at a local catalog (e.g.
+ * `ducklake:data/lake/catalog.ducklake`) to check a lake you just ingested.
  */
+import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
+import { afterAll, beforeAll, expect, it } from "vitest";
+
+const attach =
+  process.env.LAKE_ATTACH ??
+  "ducklake:https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/catalog.ducklake";
+
 interface Check {
   name: string;
   severity: "error" | "warn";
   description: string;
   sql: string;
   allowance?: number;
-  /** SQL returning up to 5 sample offending rows, for the log. */
+  /** SQL returning up to 5 sample offending rows, for the failure message. */
   sampleSql?: string;
 }
 
@@ -195,62 +202,39 @@ const CHECKS: Check[] = [
   },
 ];
 
-async function runCheck(conn: DuckDBConnection, check: Check) {
-  const started = Date.now();
-  const violations = Number(await scalar(conn, check.sql));
-  const allowance = check.allowance ?? 0;
-  const passed = violations <= allowance;
-  const result = {
-    event: "dq_check",
-    check: check.name,
-    severity: check.severity,
-    passed,
-    violations,
-    allowance,
-    ms: Date.now() - started,
-  };
-  if (passed) {
-    logger.info(result);
-  } else {
-    const samples = check.sampleSql ? await rowObjects(conn, check.sampleSql) : undefined;
-    const level = check.severity === "error" ? "error" : "warn";
-    logger[level]({ ...result, description: check.description, samples });
-  }
-  return { ...check, passed, violations };
-}
+let instance: DuckDBInstance;
+let conn: DuckDBConnection;
 
-async function main() {
-  logger.info({ event: "dq_start", lakeDir: config.lakeDir, checks: CHECKS.length });
-  const lake = await openLake(resolveLakeOptions());
-  try {
-    const stats = await rowObjects(
-      lake.conn,
-      `SELECT (SELECT count(*) FROM lake.parcels_current)                          AS current_parcels,
-              (SELECT count(*) FROM lake.parcels)                                  AS version_rows,
-              (SELECT count(DISTINCT owner_name) FROM lake.parcels_current)        AS distinct_owners,
-              (SELECT max(finished_at) FROM lake.ingest_runs WHERE status='success') AS last_success`,
-    );
-    logger.info({ event: "dq_lake_stats", ...stats[0] });
-
-    const results = [];
-    for (const check of CHECKS) results.push(await runCheck(lake.conn, check));
-
-    const failedErrors = results.filter((r) => !r.passed && r.severity === "error");
-    const failedWarns = results.filter((r) => !r.passed && r.severity === "warn");
-    logger.info({
-      event: "dq_done",
-      total: results.length,
-      passed: results.filter((r) => r.passed).length,
-      failedErrors: failedErrors.map((r) => r.name),
-      failedWarns: failedWarns.map((r) => r.name),
-    });
-    if (failedErrors.length > 0) process.exitCode = 1;
-  } finally {
-    await lake.close();
-  }
-}
-
-main().catch((err) => {
-  logger.error({ event: "dq_failed", err: String(err), stack: err?.stack });
-  process.exitCode = 1;
+beforeAll(async () => {
+  instance = await DuckDBInstance.create(":memory:");
+  conn = await instance.connect();
+  await conn.run("INSTALL ducklake; INSTALL spatial; LOAD spatial;");
+  await conn.run(`ATTACH '${attach}' AS lake (READ_ONLY)`);
 });
+
+afterAll(() => {
+  conn?.closeSync();
+  instance?.closeSync();
+});
+
+async function rows(sql: string): Promise<Record<string, unknown>[]> {
+  return (await conn.run(sql)).getRowObjectsJson();
+}
+
+for (const check of CHECKS) {
+  it(check.name, async () => {
+    const violations = Number(Object.values((await rows(check.sql))[0]!)[0]);
+    const allowance = check.allowance ?? 0;
+    if (violations <= allowance) return;
+
+    const samples = check.sampleSql ? await rows(check.sampleSql) : undefined;
+    const detail =
+      `${check.name}: ${violations} violations (allowance ${allowance}) — ${check.description}` +
+      (samples ? `\nsamples: ${JSON.stringify(samples, null, 2)}` : "");
+    if (check.severity === "warn") {
+      console.warn(detail);
+      return;
+    }
+    expect.fail(detail);
+  });
+}
