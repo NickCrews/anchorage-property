@@ -18,6 +18,7 @@
     "sql:prod": "node --env-file=.env --import tsx src/sql.ts",
     "test": "vitest run test/merge.test.ts",
     "test:girdwood": "vitest run test/girdwood.test.ts",
+    "test:exemptions": "vitest run test/exemptions.test.ts",
     "test:general": "vitest run test/general.test.ts",
     "test:all": "vitest run",
     "typecheck": "tsc --noEmit"

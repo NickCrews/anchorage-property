@@ -87,6 +87,31 @@ Is a parcel residential? `property_type` is the appraisal grouping and is
 always exactly `'Residential'` or `'Commercial'`; use `land_use` when you
 need finer grain (single-family, condo, duplex, ...):
 
+Exemptions live in four (type, amount) slot pairs — the muni numbers them
+1, 2, 5, 6 (3 and 4 don't exist). Slots 1–2 are institutional exemptions
+(government / religious / charitable / non-profit ownership, with `- LAND`
+variants when only the land is exempt), slot 5 is the personal ones (senior
+citizen, disabled veteran, military widow(er)), slot 6 is only ever
+`'OWNERS PRIMARY RESIDENCE'`, and `total_exemptions` is exactly their sum.
+Exemptions are what separates appraised from taxable: `taxable_value` is
+exactly `appraised_total_value - total_exemptions` (NULL when that difference
+is zero, and negative on a handful of over-exempted parcels), while
+`net_taxable_value` floors it at zero but on ~0.1% of (often high-value)
+parcels carries a tax-roll number the other columns can't reproduce — prefer
+`taxable_value` when relating values to exemptions.
+The full catalog of observed values, and the column semantics, are documented
+in [src/exemptions.ts](src/exemptions.ts) and enforced by
+`npm run test:exemptions`. Query the slot columns, not `exemption_types_all`
+(a lossy upstream concatenation, truncated at 100 characters) and not
+`exemption_type_group` (only ever `'Other'` / `'No Exemptions'`). For
+example, every senior-exempt parcel:
+
+```sql
+SELECT parcel_id, parcel_address, exemption_5_amount
+FROM lake.parcels_current
+WHERE exemption_5_type LIKE 'SENIOR%';
+```
+
 Spatial — parcels within 500 m of a point, with owner (needs `LOAD spatial`):
 
 ```sql
