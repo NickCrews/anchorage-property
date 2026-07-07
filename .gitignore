@@ -3,4 +3,3 @@ data/
 *.log
 .env
 __marimo__
-site/

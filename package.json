@@ -14,7 +14,6 @@
     "dq": "vitest run test/dq.test.ts",
     "daily": "tsx src/ingest.ts && LAKE_ATTACH=ducklake:data/lake/catalog.ducklake vitest run test/dq.test.ts",
     "daily:prod": "node --env-file=.env --import tsx src/ingest.ts && LAKE_ATTACH=ducklake:data/lake-r2/catalog.ducklake vitest run test/dq.test.ts",
-    "site": "scripts/build_site.sh",
     "sql": "tsx src/sql.ts",
     "sql:prod": "node --env-file=.env --import tsx src/sql.ts",
     "test": "vitest run test/merge.test.ts",
