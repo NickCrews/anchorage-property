@@ -54,7 +54,9 @@ def _(alt, duckdb, mo):
     )
 
     # The two example classifications from the README.
-    AREA_CASE = "CASE WHEN tax_district = '4' THEN 'Girdwood' ELSE 'Rest of the Muni' END"
+    AREA_CASE = (
+        "CASE WHEN tax_district = '4' THEN 'Girdwood' ELSE 'Rest of the Muni' END"
+    )
     IS_RESIDENTIAL = "property_type = 'Residential'"
 
     # Emphasis palette: Girdwood is the subject (accent blue), the rest of the
@@ -107,9 +109,7 @@ def _(alt, area_color, mo):
             fillOpacity=0.30,
             line={"strokeWidth": 2.5},
         )
-        _front = _base.transform_filter(
-            alt.datum.area == "Girdwood"
-        ).mark_area(
+        _front = _base.transform_filter(alt.datum.area == "Girdwood").mark_area(
             interpolate="step-after",
             fillOpacity=0.4,
             line={"strokeWidth": 2.5},
@@ -131,7 +131,6 @@ def _(IS_RESIDENTIAL, ptype, vtype):
         "Residential": IS_RESIDENTIAL,
         "Commercial": f"NOT ({IS_RESIDENTIAL})",
     }[ptype.value]
-
 
     value_col = {
         "Land + structures": "appraised_total_value",
@@ -170,38 +169,40 @@ def _(
     _g = _stats.filter(pl.col("area") == "Girdwood").row(0, named=True)
     _r = _stats.filter(pl.col("area") == "Rest of the Muni").row(0, named=True)
 
-    mo.vstack([
-        mo.hstack([ptype, vtype], justify="start"),
-    mo.hstack(
+    mo.vstack(
         [
-            mo.stat(
-                value=f"{_g['parcels']:,}",
-                label=f"Girdwood parcels ({ptype.value.lower()})",
-                caption=f"{_r['parcels']:,} in the rest of the muni",
-                bordered=True,
+            mo.hstack([ptype, vtype], justify="start"),
+            mo.hstack(
+                [
+                    mo.stat(
+                        value=f"{_g['parcels']:,}",
+                        label=f"Girdwood parcels ({ptype.value.lower()})",
+                        caption=f"{_r['parcels']:,} in the rest of the muni",
+                        bordered=True,
+                    ),
+                    mo.stat(
+                        value=f"${_g['median_value']:,.0f}",
+                        label="Median appraised value",
+                        caption=f"${_r['median_value']:,.0f} in the rest of the muni",
+                        bordered=True,
+                    ),
+                    mo.stat(
+                        value=f"{_g['median_acres']:,.2f} acres",
+                        label="Median parcel area",
+                        caption=f"{_r['median_acres']:,.2f} acres in the rest of the muni",
+                        bordered=True,
+                    ),
+                    mo.stat(
+                        value=f"{_g['median_year_built']:.0f}",
+                        label="Median year built",
+                        caption=f"{_r['median_year_built']:.0f} in the rest of the muni",
+                        bordered=True,
+                    ),
+                ],
+                widths="equal",
             ),
-            mo.stat(
-                value=f"${_g['median_value']:,.0f}",
-                label="Median appraised value",
-                caption=f"${_r['median_value']:,.0f} in the rest of the muni",
-                bordered=True,
-            ),
-            mo.stat(
-                value=f"{_g['median_acres']:,.2f} acres",
-                label="Median parcel area",
-                caption=f"{_r['median_acres']:,.2f} acres in the rest of the muni",
-                bordered=True,
-            ),
-            mo.stat(
-                value=f"{_g['median_year_built']:.0f}",
-                label="Median year built",
-                caption=f"{_r['median_year_built']:.0f} in the rest of the muni",
-                bordered=True,
-            ),
-        ],
-        widths="equal",
+        ]
     )
-    ])
     return
 
 
@@ -251,7 +252,11 @@ def _(
 
     _chart = area_overlay(
         _df,
-        x=alt.X("bin_lo:Q", title=f"Appraised value ({vtype.value.lower()})", axis=alt.Axis(format="$~s")),
+        x=alt.X(
+            "bin_lo:Q",
+            title=f"Appraised value ({vtype.value.lower()})",
+            axis=alt.Axis(format="$~s"),
+        ),
         tooltip=[
             alt.Tooltip("area:N", title="Area"),
             alt.Tooltip("bin_lo:Q", title="Bin start", format="$,.0f"),
@@ -463,18 +468,25 @@ def _(AREA_CASE, alt, area_color, con, mo, ptype, ptype_where):
         """
     ).pl()
 
-    _chart = alt.Chart(_df).mark_bar(cornerRadiusEnd=4).encode(
-        y=alt.Y("land_use:N", title=None, sort="-x"),
-        x=alt.X("share:Q", title="Share of area's parcels", axis=alt.Axis(format=".0%")),
-        color=area_color(),
-        yOffset=alt.YOffset("area:N", sort=["Girdwood", "Rest of the Muni"]),
-        tooltip=[
-            alt.Tooltip("area:N", title="Area"),
-            alt.Tooltip("land_use:N", title="Land use"),
-            alt.Tooltip("n:Q", title="Parcels", format=","),
-            alt.Tooltip("share:Q", title="Share", format=".1%"),
-        ],
-    ).properties(width="container", height=380)
+    _chart = (
+        alt.Chart(_df)
+        .mark_bar(cornerRadiusEnd=4)
+        .encode(
+            y=alt.Y("land_use:N", title=None, sort="-x"),
+            x=alt.X(
+                "share:Q", title="Share of area's parcels", axis=alt.Axis(format=".0%")
+            ),
+            color=area_color(),
+            yOffset=alt.YOffset("area:N", sort=["Girdwood", "Rest of the Muni"]),
+            tooltip=[
+                alt.Tooltip("area:N", title="Area"),
+                alt.Tooltip("land_use:N", title="Land use"),
+                alt.Tooltip("n:Q", title="Parcels", format=","),
+                alt.Tooltip("share:Q", title="Share", format=".1%"),
+            ],
+        )
+        .properties(width="container", height=380)
+    )
 
     mo.vstack([ptype, _chart])
     return
