@@ -8,6 +8,7 @@
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "pnpm@11.10.0",
   "scripts": {
     "ingest": "tsx src/ingest.ts",
     "ingest:prod": "node --env-file=.env --import tsx src/ingest.ts",

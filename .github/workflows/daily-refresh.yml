@@ -29,22 +29,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       # Restores the published catalog from R2, scrapes the ArcGIS layer,
       # merges the snapshot into history, and publishes the updated catalog.
       - name: Ingest
-        run: npm run ingest
+        run: pnpm run ingest
 
       # Vitest suite; error-severity checks fail the workflow. Attaches the
       # catalog the ingest just left on disk (its stored data path resolves
       # parquet over the bucket's public URL, so no R2 credentials are used).
       - name: Data quality checks
-        run: npm run dq
+        run: pnpm run dq
         env:
           LAKE_ATTACH: ducklake:data/lake-r2/catalog.ducklake
