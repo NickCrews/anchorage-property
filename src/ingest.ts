@@ -1,17 +1,23 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { config, resolveLakeOptions } from "./config.js";
+import { ARCHIVE_KEY, BROWSER_KEY, config, dbPaths } from "./config.js";
 import { logger } from "./logger.js";
 import { fetchAllParcels } from "./arcgis.js";
-import { ensureSchema, openLake } from "./lake.js";
+import { buildBrowserArtifact } from "./export.js";
+import { ensureSchema, openStore } from "./store.js";
 import { assertSnapshotSane, mergeSnapshot, recordRun, stageSnapshot } from "./pipeline.js";
-import { publishCatalog, restoreCatalog } from "./publish.js";
+import { publishObject, restoreArchive } from "./publish.js";
 
 /**
  * Daily ingest: download the full MOA property layer, collapse it to one row
- * per parcel, and SCD2-merge it into the DuckLake. Safe to re-run: an
+ * per parcel, and SCD2-merge it into the archive database. Safe to re-run: an
  * unchanged upstream produces zero new rows.
+ *
+ * Run sequence: fetch → restore archive → merge → record run →
+ * checkpoint/close → build browser artifact → publish both. Publishing
+ * happens only after the archive is closed and checkpointed, so readers never
+ * see a torn file.
  */
 async function main() {
   const startedAtIso = new Date().toISOString();
@@ -21,8 +27,8 @@ async function main() {
   log.info({
     event: "ingest_start",
     serviceUrl: config.serviceUrl,
-    lakeDir: config.lakeDir,
-    lakeTarget: config.lakeTarget,
+    dbDir: config.dbDir,
+    dbTarget: config.dbTarget,
   });
 
   const fetchResult = await fetchAllParcels({
@@ -40,27 +46,28 @@ async function main() {
     );
   }
 
-  const lakeOpts = resolveLakeOptions();
-  // Ephemeral runners start without data/lake-r2/: continue the published lake
-  // rather than forking a fresh one. createIfMissing covers the very first
-  // run, when the bucket has no catalog either (restoreCatalog returns false).
-  if (lakeOpts.data.kind === "r2" && !fs.existsSync(lakeOpts.catalog)) {
-    await restoreCatalog(lakeOpts.catalog);
+  const { archive, browser } = dbPaths(config.dbDir);
+  // Ephemeral runners start without data/db-r2/: continue the published
+  // history rather than forking a fresh one. createIfMissing covers the very
+  // first run, when the bucket has no archive either (restoreArchive returns
+  // false).
+  if (config.dbTarget === "r2" && !fs.existsSync(archive)) {
+    await restoreArchive(archive);
   }
-  const lake = await openLake({ ...lakeOpts, createIfMissing: true });
+  const store = await openStore({ dbPath: archive, createIfMissing: true });
   try {
-    await ensureSchema(lake.conn);
+    await ensureSchema(store.conn);
 
     log.info({ event: "stage_start", pages: fetchResult.files.length });
-    await stageSnapshot(lake.conn, path.join(rawRunDir, "*.ndjson"));
-    await assertSnapshotSane(lake.conn, config.minSnapshotRatio, config.allowShrink);
+    await stageSnapshot(store.conn, path.join(rawRunDir, "*.ndjson"));
+    await assertSnapshotSane(store.conn, config.minSnapshotRatio, config.allowShrink);
 
     log.info({ event: "merge_start" });
-    const counts = await mergeSnapshot(lake.conn, startedAtIso);
+    const counts = await mergeSnapshot(store.conn, startedAtIso);
     counts.sourceFeatures = fetchResult.fetchedFeatures;
 
     const finishedAtIso = new Date().toISOString();
-    await recordRun(lake.conn, {
+    await recordRun(store.conn, {
       runId,
       startedAtIso,
       finishedAtIso,
@@ -74,11 +81,21 @@ async function main() {
       ...counts,
     });
   } finally {
-    await lake.close();
+    await store.close();
   }
 
-  if (lakeOpts.data.kind === "r2") {
-    await publishCatalog(lakeOpts.catalog);
+  // A leftover WAL means the checkpoint didn't happen; publishing the bare
+  // .duckdb would hand readers a torn database.
+  if (fs.existsSync(`${archive}.wal`)) {
+    throw new Error(`${archive}.wal still exists after close; refusing to publish a torn archive.`);
+  }
+  log.info({ event: "archive_size", bytes: (await fs.promises.stat(archive)).size });
+
+  await buildBrowserArtifact(archive, browser);
+
+  if (config.dbTarget === "r2") {
+    await publishObject(archive, ARCHIVE_KEY);
+    await publishObject(browser, BROWSER_KEY);
   }
 
   if (!config.keepRaw) {

@@ -1,4 +1,4 @@
-name: Daily lake refresh
+name: Daily database refresh
 
 on:
   schedule:
@@ -7,8 +7,8 @@ on:
     - cron: "0 14 * * *"
   workflow_dispatch:
 
-# Never let two refreshes write to the lake at once; a late manual run just
-# waits for the scheduled one to finish.
+# Never let two refreshes write to the database at once; a late manual run
+# just waits for the scheduled one to finish.
 concurrency:
   group: lake-refresh
   cancel-in-progress: false
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      LAKE_TARGET: r2
+      DB_TARGET: r2
       # Non-secret R2 identifiers, same values as .env.example.
       R2_BUCKET: anchorage-property
       R2_ACCOUNT_ID: 9d0e65e8801b8e953ee7cb4c3e840ae8
@@ -38,15 +38,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Restores the published catalog from R2, scrapes the ArcGIS layer,
-      # merges the snapshot into history, and publishes the updated catalog.
+      # Restores the published archive from R2, scrapes the ArcGIS layer,
+      # merges the snapshot into history, builds the browser artifact, and
+      # publishes both .duckdb files.
       - name: Ingest
         run: pnpm run ingest
 
       # Vitest suite; error-severity checks fail the workflow. Attaches the
-      # catalog the ingest just left on disk (its stored data path resolves
-      # parquet over the bucket's public URL, so no R2 credentials are used).
+      # .duckdb files the ingest just left on disk (no R2 credentials used).
       - name: Data quality checks
         run: pnpm run dq
         env:
-          LAKE_ATTACH: ducklake:data/lake-r2/catalog.ducklake
+          DB_ATTACH: data/db-r2/anchorage.duckdb
+          DB_ATTACH_CURRENT: data/db-r2/anchorage-current.duckdb

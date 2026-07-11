@@ -1,10 +1,10 @@
 /**
  * Executable proof of the exemption catalog in src/exemptions.ts: every
- * exemption value in the published lake is a known one, and the structural
+ * exemption value in the published archive is a known one, and the structural
  * relationships documented there hold. The upstream layer has no coded-value
  * domain for these columns, so these tests are the tripwire that catches the
  * muni introducing a new exemption type (or restructuring the columns).
- * Runs against the published lake over HTTPS (override with LAKE_ATTACH),
+ * Runs against the published archive over HTTPS (override with DB_ATTACH),
  * so it needs network.
  */
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
@@ -18,8 +18,8 @@ import {
 } from "../src/exemptions.js";
 
 const attach =
-  process.env.LAKE_ATTACH ??
-  "ducklake:https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/catalog.ducklake";
+  process.env.DB_ATTACH ??
+  "https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb";
 
 let instance: DuckDBInstance;
 let conn: DuckDBConnection;
@@ -27,7 +27,6 @@ let conn: DuckDBConnection;
 beforeAll(async () => {
   instance = await DuckDBInstance.create(":memory:");
   conn = await instance.connect();
-  await conn.run("INSTALL ducklake;");
   await conn.run(`ATTACH '${attach}' AS lake (READ_ONLY)`);
 });
 

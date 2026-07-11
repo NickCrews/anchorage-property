@@ -4,27 +4,31 @@ import { fileURLToPath } from "node:url";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * Which lake the commands operate on:
- *   local (default) — catalog + parquet under data/lake, nothing leaves the machine.
- *   r2              — catalog under data/lake-r2 (mirrored to the bucket after each
- *                     ingest), parquet written directly to the R2 bucket. Requires
+ * Which database the commands operate on:
+ *   local (default) — .duckdb files under data/db, nothing leaves the machine,
+ *                     no credentials needed.
+ *   r2              — .duckdb files under data/db-r2, restored from and
+ *                     published to the R2 bucket after each ingest. Requires
  *                     the R2_* variables below (npm scripts load them from .env).
  */
-const lakeTarget = (process.env.LAKE_TARGET ?? "local") as "local" | "r2";
+const dbTarget = (process.env.DB_TARGET ?? "local") as "local" | "r2";
+
+/** Published object keys — also the local file names under dbDir. */
+export const ARCHIVE_KEY = "anchorage.duckdb";
+export const BROWSER_KEY = "anchorage-current.duckdb";
 
 export const config = {
   projectRoot,
 
-  lakeTarget,
+  dbTarget,
 
   /** ArcGIS FeatureServer layer: MOA parcel boundaries merged with Property Appraisal CAMA data. */
   serviceUrl:
     process.env.MOA_SERVICE_URL ??
     "https://services2.arcgis.com/Ce3DhLRthdwbHlfF/arcgis/rest/services/PropertyInformation_Hosted/FeatureServer/0",
 
-  /** Directory holding the DuckLake catalog (+ parquet data files for the local target). */
-  lakeDir:
-    process.env.LAKE_DIR ?? path.join(projectRoot, "data", lakeTarget === "r2" ? "lake-r2" : "lake"),
+  /** Directory holding the archive and browser .duckdb files. */
+  dbDir: process.env.DB_DIR ?? path.join(projectRoot, "data", dbTarget === "r2" ? "db-r2" : "db"),
 
   r2: {
     bucket: process.env.R2_BUCKET ?? "",
@@ -47,17 +51,17 @@ export const config = {
 
   /**
    * Safety gate: abort (leaving history untouched) if the fresh snapshot has fewer
-   * distinct parcels than this fraction of the current lake count. Protects the
+   * distinct parcels than this fraction of the current archive count. Protects the
    * history trail from a partially-broken upstream export. Override with ALLOW_SHRINK=1.
    */
   minSnapshotRatio: Number(process.env.MIN_SNAPSHOT_RATIO ?? 0.95),
   allowShrink: process.env.ALLOW_SHRINK === "1",
 };
 
-export function lakePaths(lakeDir: string) {
+export function dbPaths(dbDir: string) {
   return {
-    catalog: path.join(lakeDir, "catalog.ducklake"),
-    dataPath: path.join(lakeDir, "parquet"),
+    archive: path.join(dbDir, ARCHIVE_KEY),
+    browser: path.join(dbDir, BROWSER_KEY),
   };
 }
 
@@ -75,38 +79,8 @@ export function requireR2Config(): R2Config {
     .map(([k]) => `R2_${k.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase()}`);
   if (missing.length > 0) {
     throw new Error(
-      `LAKE_TARGET=r2 requires ${missing.join(", ")} — copy .env.example to .env and fill it in.`,
+      `DB_TARGET=r2 requires ${missing.join(", ")} — copy .env.example to .env and fill it in.`,
     );
   }
   return config.r2;
-}
-
-/** Where the lake's parquet data lives, independent of where the catalog file is. */
-export type LakeData =
-  | { kind: "local"; dir: string }
-  | { kind: "r2"; r2: R2Config };
-
-export interface OpenLakeOptions {
-  /** Local filesystem path of the catalog.ducklake file. */
-  catalog: string;
-  data: LakeData;
-  /**
-   * Permit bootstrapping a brand-new catalog when `catalog` does not exist.
-   * Only consulted for the r2 data target: there a missing catalog throws by
-   * default, so a runner that skipped restoreCatalog() fails loudly instead of
-   * silently forking the published lake. Local lakes are created on demand.
-   */
-  createIfMissing?: boolean;
-}
-
-/** The lake selected by LAKE_TARGET / LAKE_DIR, as concrete openLake() options. */
-export function resolveLakeOptions(): OpenLakeOptions {
-  const { catalog, dataPath } = lakePaths(config.lakeDir);
-  return {
-    catalog,
-    data:
-      config.lakeTarget === "r2"
-        ? { kind: "r2", r2: requireR2Config() }
-        : { kind: "local", dir: dataPath },
-  };
 }

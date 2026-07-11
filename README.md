@@ -1,27 +1,44 @@
 # anchorage-parcel-lake
 
-The Municipality of Anchorage property database as a **public
-[DuckLake](https://ducklake.select/)** — every parcel's owner, appraised
-values, exemptions, zoning, legal description, and geometry, updated daily,
-with a full **history trail**: you can ask who owned any parcel, and what it
-was worth, at any point in time since the lake started.
+The Municipality of Anchorage property database as a **public DuckDB
+database** — every parcel's owner, appraised values, exemptions, zoning,
+legal description, and geometry, updated daily, with a full **history
+trail**: you can ask who owned any parcel, and what it was worth, at any
+point in time since the archive started.
 
-Anyone can query it over HTTPS with no credentials, no account, no API key —
-just DuckDB.
+Anyone can query it over HTTPS with no credentials, no account, no API key,
+no extension to install — just DuckDB (any version ≥ 1.0).
 
 ## Quick start
 
 ```sql
-INSTALL ducklake;
-ATTACH 'ducklake:https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/catalog.ducklake' AS lake;
+ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb' AS lake (READ_ONLY);
 
 SELECT count(*) FROM lake.parcels_current;
 ```
 
-That's it. DuckDB fetches the catalog and reads the parquet files straight
-from the bucket over HTTPS.
+That's it. DuckDB range-reads the file straight from the bucket over HTTPS,
+fetching only the columns your query touches (a typical query costs ~2–3 MB,
+no matter how large the archive grows).
 
-## What's in the lake
+## The two published files
+
+- **`anchorage.duckdb`** — the full archive: complete SCD2 history, geometry
+  included. Use this from the DuckDB CLI, Python, or anything that can
+  range-read over HTTPS.
+- **`anchorage-current.duckdb`** — the browser file: current rows only, no
+  geometry (`geom_wkb`) and no internal `attr_hash`, ~23 MB. Browser clients
+  ([shell.duckdb.org](https://shell.duckdb.org), duckdb-wasm, Pyodide/marimo)
+  download whatever file they attach *in full* — they never range-read — so
+  this file exists to keep that download small, and it does not grow as
+  history accumulates. Attach it exactly like the archive:
+
+  ```sql
+  ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS lake (READ_ONLY);
+  SELECT count(*) FROM lake.parcels_current;
+  ```
+
+## What's in the archive
 
 - **`lake.parcels_current`** — one row per parcel (~98.5k), the current state.
 - **`lake.parcels`** — the full SCD2 history: one row per parcel *version*.
@@ -36,6 +53,9 @@ from the bucket over HTTPS.
     version (`valid_to IS NULL` means current)
 - **`lake.ingest_runs`** — one row per ingest run: counts of new / changed /
   retired / unchanged parcels.
+
+The browser file carries `parcels_current` (minus `geom_wkb` and `attr_hash`)
+and `ingest_runs`, but not the `parcels` history table.
 
 Multi-part parcels (one `Parcel_ID`, several source polygons) are collapsed to
 one row per parcel with their geometries unioned; `feature_count` records how
@@ -116,7 +136,8 @@ FROM lake.parcels_current
 WHERE exemption_5_type LIKE 'SENIOR%';
 ```
 
-Spatial — parcels within 500 m of a point, with owner (needs `LOAD spatial`):
+Spatial — parcels within 500 m of a point, with owner (needs `LOAD spatial`;
+geometry lives in the full archive, not the browser file):
 
 ```sql
 LOAD spatial;
@@ -128,17 +149,13 @@ WHERE ST_DWithin(
   500);
 ```
 
-On top of the explicit SCD2 trail, DuckLake itself snapshots every committed
-transaction, so `SELECT * FROM lake.parcels AT (VERSION => n)` time travel
-also works as a second, physical audit layer.
-
 ## Data source
 
 The Municipality of Anchorage publishes an official ArcGIS Feature Service,
 [`PropertyInformation_Hosted`](https://services2.arcgis.com/Ce3DhLRthdwbHlfF/arcgis/rest/services/PropertyInformation_Hosted/FeatureServer/0)
 ("parcel boundaries merged with Property Appraisal CAMA information, updated
 daily except weekends"). A daily scraper pages through it and SCD2-merges the
-snapshot into this lake; the lake's history starts at its first ingest, not at
+snapshot into the archive; the history starts at its first ingest, not at
 the beginning of MOA's records.
 
 ~1k source features with an empty `Parcel_ID` and all-null attributes
@@ -146,19 +163,31 @@ the beginning of MOA's records.
 be keyed. `PUBDATE` is stored but excluded from change detection, so the
 nightly republish never creates spurious history versions.
 
-A 22-check data-quality suite runs after every ingest (no duplicate current
+A 24-check data-quality suite runs after every ingest (no duplicate current
 rows, no overlapping validity intervals, no missing geometry, values
-non-negative, parcels within the Anchorage bbox, freshness, ...). A few
-known real-world warts exist in the source and are allowed through: a couple
-of ~1 m² sliver parcels and a few OGC-invalid rings.
+non-negative, parcels within the Anchorage bbox, freshness, browser file in
+sync with the archive, ...). A few known real-world warts exist in the source
+and are allowed through: a couple of ~1 m² sliver parcels and a few
+OGC-invalid rings.
 
 ## Notes & caveats
 
-- The lake is written with **DuckLake 1.0**, so reading it needs a DuckDB
-  with the DuckLake 1.0 extension (DuckDB **1.5.2 or newer**). On an older
-  install, `UPDATE EXTENSIONS;` or `FORCE INSTALL ducklake;` first.
-- Browser-based clients (e.g. [shell.duckdb.org](https://shell.duckdb.org))
-  work too: the bucket serves a CORS policy allowing `GET` from any origin.
+- **Nothing to install, no version floor.** Both files are written at DuckDB
+  storage version `v1.0.0`, so any DuckDB ≥ 1.0 opens them; `httpfs`
+  autoloads for `https://` paths.
+- The two files are published as separate objects, so during the daily
+  refresh (~06:00 Anchorage) they can briefly disagree with each other.
+- **Time travel is the explicit SCD2 columns.** `valid_from` / `valid_to` /
+  `is_current` answer every "as of" question, as in the examples above. The
+  earlier DuckLake incarnation of this project additionally offered physical
+  snapshot time travel (`AT (VERSION => n)`); that second, redundant
+  mechanism went away with the format change.
+- **Migrating from the DuckLake?** This dataset was previously published as a
+  DuckLake catalog (`ATTACH 'ducklake:https://.../catalog.ducklake'`). That
+  format required DuckDB ≥ 1.5.2 plus the `ducklake` extension, cost every
+  query a 5 MB catalog fetch, and served browsers the full history +
+  geometry. It has been replaced by the two files above and is no longer
+  updated. Switch by replacing your attach string with the quick-start one.
 - This is a read-only mirror with history, not the system of record. For
   authoritative data, go to the
   [MOA property database](https://property.muni.org/).

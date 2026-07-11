@@ -1,6 +1,7 @@
 /**
- * Data-quality suite over the lake. Each check's SQL returns the number of
- * VIOLATING rows; the check passes when that count is <= allowance.
+ * Data-quality suite over the published artifacts. Each check's SQL returns
+ * the number of VIOLATING rows; the check passes when that count is <=
+ * allowance.
  *
  * severity 'error'  → known-impossible states; the test fails.
  * severity 'warn'   → real-world dirtiness we tolerate up to an allowance
@@ -8,16 +9,24 @@
  *                     handful of OGC-invalid rings in the source); beyond the
  *                     allowance a warning is logged but the test still passes.
  *
- * Runs against the published lake over HTTPS by default, so it needs network.
- * Point LAKE_ATTACH at a local catalog (e.g.
- * `ducklake:data/lake/catalog.ducklake`) to check a lake you just ingested.
+ * Runs against the published files over HTTPS by default, so it needs
+ * network. Point DB_ATTACH / DB_ATTACH_CURRENT at local .duckdb files (e.g.
+ * `data/db/anchorage.duckdb`) to check an ingest before it is published.
+ *
+ * The archive is deliberately attached under an alias (`lake`) rather than
+ * opened as the primary database: a view whose persisted body carries a stale
+ * catalog qualification only breaks when read through a different alias, so
+ * this suite is what catches that before readers do.
  */
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
 const attach =
-  process.env.LAKE_ATTACH ??
-  "ducklake:https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/catalog.ducklake";
+  process.env.DB_ATTACH ??
+  "https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb";
+const attachCurrent =
+  process.env.DB_ATTACH_CURRENT ??
+  "https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb";
 
 interface Check {
   name: string;
@@ -200,6 +209,26 @@ const CHECKS: Check[] = [
     description: "no version starts in the future",
     sql: `SELECT count(*) FROM lake.parcels WHERE valid_from > (now() AT TIME ZONE 'UTC') + INTERVAL 1 HOUR`,
   },
+  // -------------------------------------------------------------------------
+  // Browser artifact (anchorage-current.duckdb): the derived file must agree
+  // with the archive it was built from. The two objects are published
+  // separately, so a mismatch here is either an export bug or a reader who
+  // caught the bucket mid-refresh.
+  {
+    name: "browser_row_count_matches_archive",
+    severity: "error",
+    description: "browser artifact has exactly the archive's current rows — a truncated export cannot ship silently",
+    sql: `SELECT CASE WHEN (SELECT count(*) FROM browser.parcels_current)
+                    <> (SELECT count(*) FROM lake.parcels_current) THEN 1 ELSE 0 END`,
+  },
+  {
+    name: "browser_drops_heavy_columns",
+    severity: "error",
+    description: "browser artifact does not carry geom_wkb (40% of bytes) or attr_hash (internal)",
+    sql: `SELECT count(*) FROM duckdb_columns()
+          WHERE database_name = 'browser' AND table_name = 'parcels_current'
+            AND column_name IN ('geom_wkb', 'attr_hash')`,
+  },
 ];
 
 let instance: DuckDBInstance;
@@ -208,8 +237,9 @@ let conn: DuckDBConnection;
 beforeAll(async () => {
   instance = await DuckDBInstance.create(":memory:");
   conn = await instance.connect();
-  await conn.run("INSTALL ducklake; INSTALL spatial; LOAD spatial;");
+  await conn.run("INSTALL spatial; LOAD spatial;");
   await conn.run(`ATTACH '${attach}' AS lake (READ_ONLY)`);
+  await conn.run(`ATTACH '${attachCurrent}' AS browser (READ_ONLY)`);
 });
 
 afterAll(() => {

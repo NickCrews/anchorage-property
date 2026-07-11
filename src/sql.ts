@@ -1,9 +1,11 @@
 /**
- * Ad-hoc SQL against the lake:  npm run sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"
- * (Works regardless of the standalone duckdb CLI's DuckLake catalog version.)
+ * Ad-hoc SQL against the archive:  npm run sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"
+ * Attaches the archive under the alias `lake`, exactly as a reader of the
+ * published file would.
  */
-import { resolveLakeOptions } from "./config.js";
-import { openLake, rowObjects } from "./lake.js";
+import { DuckDBInstance } from "@duckdb/node-api";
+import { config, dbPaths } from "./config.js";
+import { rowObjects } from "./store.js";
 
 const sql = process.argv[2];
 if (!sql) {
@@ -11,9 +13,13 @@ if (!sql) {
   process.exit(2);
 }
 
-const lake = await openLake(resolveLakeOptions());
+const { archive } = dbPaths(config.dbDir);
+const instance = await DuckDBInstance.create(":memory:");
+const conn = await instance.connect();
 try {
-  const rows = await rowObjects(lake.conn, sql);
+  await conn.run("INSTALL spatial; LOAD spatial;");
+  await conn.run(`ATTACH '${archive.replace(/'/g, "''")}' AS lake (READ_ONLY)`);
+  const rows = await rowObjects(conn, sql);
   const plain = (v: unknown): unknown => {
     if (typeof v === "bigint") return Number(v);
     if (v && typeof v === "object" && "micros" in v) return String(v); // DuckDB timestamp values
@@ -21,5 +27,6 @@ try {
   };
   console.log(JSON.stringify(rows, (_k, v) => plain(v), 2));
 } finally {
-  await lake.close();
+  conn.closeSync();
+  instance.closeSync();
 }
