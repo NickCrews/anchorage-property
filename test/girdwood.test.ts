@@ -4,7 +4,7 @@
  *   tax_district = '4'   -- the Girdwood Valley Service Area
  *
  * Each test pins down one claim made alongside that example query. Runs
- * against the published lake over HTTPS (override with LAKE_ATTACH), so it
+ * against the published archive over HTTPS (override with DB_ATTACH), so it
  * needs network. The data drifts daily, so counts are asserted as tolerant
  * invariants; the exact figures on 2026-07-05 are noted in comments.
  */
@@ -12,8 +12,8 @@ import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
 const attach =
-  process.env.LAKE_ATTACH ??
-  "ducklake:https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/catalog.ducklake";
+  process.env.DB_ATTACH ??
+  "https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb";
 
 const GIRDWOOD = `tax_district = '4'`;
 
@@ -23,7 +23,7 @@ let conn: DuckDBConnection;
 beforeAll(async () => {
   instance = await DuckDBInstance.create(":memory:");
   conn = await instance.connect();
-  await conn.run("INSTALL ducklake; INSTALL spatial; LOAD spatial;");
+  await conn.run("INSTALL spatial; LOAD spatial;");
   await conn.run(`ATTACH '${attach}' AS lake (READ_ONLY)`);
 });
 

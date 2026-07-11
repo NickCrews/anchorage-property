@@ -84,9 +84,8 @@ def _():
 @app.cell
 def _():
     con = duckdb.connect()
-    con.execute("INSTALL ducklake; LOAD ducklake;")
     con.execute(
-        "ATTACH 'ducklake:https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/catalog.ducklake'"
+        "ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb'"
         " AS lake (READ_ONLY);"
     )
 

@@ -1,22 +1,20 @@
 /**
- * End-to-end SCD2 merge test against a throwaway lake using synthetic
+ * End-to-end SCD2 merge test against a throwaway database using synthetic
  * snapshots — no network. Verifies: new/changed/retired/unchanged detection,
  * multi-part geometry union, point-in-time ("owner as of") queries, and
  * idempotent re-merge.
  *
- * The tests in this file are sequential and share the lake: each stage builds
- * on the merges performed by the ones before it.
+ * The tests in this file are sequential and share the database: each stage
+ * builds on the merges performed by the ones before it.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { lakePaths } from "../src/config.js";
-import { ensureSchema, openLake, rowObjects, scalar } from "../src/lake.js";
+import { ensureSchema, openStore, rowObjects, scalar } from "../src/store.js";
 import { mergeSnapshot, stageSnapshot } from "../src/pipeline.js";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "moa-lake-test-"));
-const lakeDir = path.join(tmpRoot, "lake");
 const rawDir = path.join(tmpRoot, "raw");
 fs.mkdirSync(rawDir, { recursive: true });
 
@@ -67,14 +65,13 @@ function writeSnapshot(name: string, parcels: FakeParcel[]): string {
   return path.join(dir, "*.ndjson");
 }
 
-const { catalog, dataPath } = lakePaths(lakeDir);
-let lake: Awaited<ReturnType<typeof openLake>>;
+let lake: Awaited<ReturnType<typeof openStore>>;
 
 // T2 snapshot path is written in T1's test and re-used by the idempotence test.
 let t2: string;
 
 beforeAll(async () => {
-  lake = await openLake({ catalog, data: { kind: "local", dir: dataPath } });
+  lake = await openStore({ dbPath: path.join(tmpRoot, "anchorage.duckdb"), createIfMissing: true });
   await ensureSchema(lake.conn);
 });
 
@@ -104,7 +101,7 @@ it("T1: first merge treats every parcel as new", async () => {
 it("multi-part parcel collapses to one row with unioned geometry", async () => {
   const p2 = await rowObjects(
     lake.conn,
-    `SELECT feature_count, round(area_m2) AS area_m2 FROM lake.parcels_current WHERE parcel_id = 'P2'`,
+    `SELECT feature_count, round(area_m2) AS area_m2 FROM parcels_current WHERE parcel_id = 'P2'`,
   );
   expect(p2).toHaveLength(1);
   expect(Number(p2[0]!.feature_count)).toBe(2);
@@ -126,15 +123,15 @@ it("T2: detects new, changed, retired, and unchanged parcels", async () => {
   ]);
 
   // 3 + 2 version rows, 3 current.
-  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels`))).toBe(5);
-  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels_current`))).toBe(3);
+  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM parcels`))).toBe(5);
+  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM parcels_current`))).toBe(3);
 });
 
 it("point-in-time queries see historical owners", async () => {
   const asOf = (ts: string, id: string) =>
     scalar<string>(
       lake.conn,
-      `SELECT owner_name FROM lake.parcels
+      `SELECT owner_name FROM parcels
        WHERE parcel_id = '${id}' AND valid_from <= TIMESTAMP '${ts}'
          AND (valid_to IS NULL OR valid_to > TIMESTAMP '${ts}')`,
     );
@@ -150,5 +147,5 @@ it("re-merging the same snapshot is a no-op", async () => {
   expect([m3.newParcels, m3.changedParcels, m3.retiredParcels, m3.unchangedParcels]).toEqual([
     0, 0, 0, 3,
   ]);
-  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM lake.parcels`))).toBe(5);
+  expect(Number(await scalar(lake.conn, `SELECT count(*) FROM parcels`))).toBe(5);
 });
