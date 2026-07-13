@@ -16,8 +16,8 @@ export interface OpenStoreOptions {
   dbPath: string;
   /**
    * Permit bootstrapping a brand-new database when `dbPath` does not exist.
-   * A missing file throws by default, so a runner that skipped
-   * restoreArchive() fails loudly instead of silently forking the published
+   * A missing file throws by default, so a caller that expected a pulled
+   * working copy fails loudly instead of silently forking the published
    * history.
    */
   createIfMissing?: boolean;
@@ -26,8 +26,8 @@ export interface OpenStoreOptions {
 /**
  * Open the parcel database as the *primary* database (not ATTACHed under an
  * alias) with the spatial extension loaded. Opening this file only: syncing
- * with the bucket (restoreArchive / publishObject) is the caller's
- * responsibility, out of band of the session.
+ * with the bucket (`pull` / `push`) is the caller's responsibility, out of
+ * band of the session.
  *
  * Primary, not attached, matters beyond convenience: DuckDB persists a view's
  * body with its catalog qualification baked in, so a view created while the
@@ -42,7 +42,7 @@ export async function openStore(opts: OpenStoreOptions): Promise<Store> {
   const { dbPath } = opts;
   if (!fs.existsSync(dbPath) && !opts.createIfMissing) {
     throw new Error(
-      `No database at ${dbPath}. Restore the published archive first (restoreArchive), ` +
+      `No database at ${dbPath}. Pull the published archive first (pnpm pull), ` +
         `or pass createIfMissing: true to bootstrap a brand-new database.`,
     );
   }

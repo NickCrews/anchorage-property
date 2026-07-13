@@ -1,6 +1,6 @@
 # ADR 0001 — A decomposed-verb data lifecycle
 
-Status: proposed (2026-07-10)
+Status: accepted (2026-07-10)
 
 ## Context
 
@@ -59,17 +59,18 @@ happened inside. The fix is not a better weld. It is to split the verbs.
 ## Decision
 
 Model the lifecycle on `git`: **the archive in R2 is the only source of truth;
-a working copy is a local, ETag-validated cache of it; a sandbox is just a
-scratch file path.** Each action is an independently runnable verb. The daily
-automation is nothing more than a canned sequence of those verbs, and every
-prefix of that sequence is a legitimate place to stop.
+a working copy is a local, ETag-validated cache of it, living in a named
+workspace; a sandbox is just another workspace.** Each action is an
+independently runnable verb. The daily automation is nothing more than a
+canned sequence of those verbs, and every prefix of that sequence is a
+legitimate place to stop.
 
 ### The verbs
 
 | Verb | Does | Network |
 | --- | --- | --- |
-| `pull [path]` | remote archive → working copy; records the source ETag | in only |
-| `ingest [path]` | fetch upstream + SCD2-merge into the working copy | upstream in only; **never touches remote** |
+| `pull [path]` | remote archive → workspace; records the source ETag; refuses to overwrite a locally-born database (see below) | in only |
+| `ingest [path]` | fetch upstream + SCD2-merge into the workspace's working copy | upstream in only; **never touches remote** |
 | `verify [path]` | run the checks against a copy (or the published file) | none, or HTTPS if pointed at the published URL |
 | `push [path]` | working copy → remote, guarded (see below) | out only |
 
@@ -77,7 +78,7 @@ prefix of that sequence is a legitimate place to stop.
 default, not something you must prevent.
 
 ```
-pnpm pull            # prod -> data/db/r2/anchorage.duckdb, remembers ETag
+pnpm pull            # prod -> workspaces/<name>/anchorage.duckdb, remembers ETag
 pnpm ingest          # merge today's snapshot into it, local only
 pnpm sql -- "..."    # inspect
 # walk away: remote untouched, nothing published
@@ -87,6 +88,24 @@ pnpm push            # only if and when you decide to
 The daily cron becomes `pull && ingest && verify && push` — a script, not a
 special mode.
 
+### Workspaces replace `DB_TARGET`
+
+A workspace is a directory `workspaces/<name>/` holding one working copy and
+everything that belongs to it: the archive, the browser artifact derived from
+it, the ETag sidecar recording which remote object it descends from, and the
+per-run raw downloads that fed it. `WORKSPACE=<name>` selects it; the default
+is `default`. Every verb targets the selected workspace (or an explicit path,
+when given).
+
+The name is only a label for a local context — "default", "r2", a throwaway
+experiment. Whether a sync is *possible* is decided by credentials: `pull` and
+`push` are the only verbs that talk to the bucket, and they require the `R2_*`
+variables, failing with a clear "no remote configured" message without them.
+Whether a sync is *safe* is decided by lineage, tracked per working copy by
+the ETag sidecar — never by the workspace's name. `ingest` and `verify` need
+neither credentials nor lineage; they act on whatever file they are pointed
+at.
+
 ### `push` self-verifies (the gate is intrinsic)
 
 `push` runs the error-severity checks in-process against the copy it is about
@@ -95,7 +114,7 @@ gate belongs to the dangerous verb, so it cannot be forgotten or bypassed by a
 manual push. `verify` remains separately runnable for auditing an
 already-published file.
 
-### `push` is a compare-and-swap (the clobber guard)
+### `push` is a compare-and-swap (the remote-clobber guard)
 
 `pull` records the archive's ETag; `push` sends `If-Match: <that etag>` on the
 archive PUT. If prod moved since the pull (CI ran, someone else pushed), the
@@ -111,31 +130,32 @@ The browser artifact is published after the archive with no precondition — it
 is a pure derivative and the two objects are already documented as allowed to
 disagree briefly mid-refresh.
 
-### `REMOTE` replaces `DB_TARGET`
+### `pull` refuses unrelated histories (the local-clobber guard)
 
-`REMOTE=none` (default) or `REMOTE=r2`. It now means exactly one thing: *is
-there a remote of record?* `pull` and `push` are the only verbs that read it,
-and they no-op (or error with a clear message) under `REMOTE=none`. The working
-copy lives at `data/db/<remote>/anchorage.duckdb` — a pure function of the
-remote, keeping dev and prod histories physically separate as they are today.
-`ingest` and `verify` do not consult `REMOTE` at all; they act on whatever path
-they are given.
+The mirror image of the CAS: a workspace database that has *no* ETag sidecar
+was born locally — its history was never the remote's, and pulling over it
+would destroy that history (a contributor's weeks of credential-less local
+ingests, say). `pull` refuses to overwrite an archive with no recorded ETag,
+with `--force` as the escape hatch. Refreshing a tracked copy (sidecar
+present) overwrites freely, exactly like `git pull` fast-forwarding a clone
+versus refusing unrelated histories.
 
-### Sandbox = a scratch file path
+### Sandbox = a throwaway workspace
 
-Every verb takes an optional target path, so a throwaway clone of prod is just
-a second file:
+A throwaway clone of prod is just another workspace:
 
 ```
-pnpm pull data/sandbox/exp.duckdb            # clone prod to scratch
-DB_ATTACH=data/sandbox/exp.duckdb pnpm test:all
-rm data/sandbox/exp.duckdb                   # discard
+WORKSPACE=exp pnpm pull            # clone prod to workspaces/exp/
+WORKSPACE=exp pnpm sql -- "..."    # poke at it
+rm -rf workspaces/exp              # discard
 ```
 
-No `push` is ever aimed at it, so nothing it does can reach prod. On APFS the
-copy is copy-on-write and effectively instant; the code stays a plain file
-copy and lets the filesystem reflink. `data/sandbox/` is already gitignored via
-`data/`.
+Its archive, browser artifact, ETag, and raw downloads all live and die
+together in that one directory. Nothing aims a `push` at it, and even a
+mistaken `push` from it is caught by the CAS unless it genuinely descends
+from the current remote object. On APFS the pull's write is the only cost;
+`workspaces/` is gitignored wholesale. Every verb also accepts an explicit
+file path for the odd case a directory-per-context is too much ceremony.
 
 ### `.env` loading moves into config
 
@@ -160,12 +180,16 @@ Removed:
   `pnpm sql` do the right thing in all contexts (contributor, laptop with
   `.env`, CI).
 - `DB_ATTACH` / `DB_ATTACH_CURRENT` path duplication in `package.json` and CI.
+- The `DB_DIR` / `RAW_DIR` overrides — `WORKSPACE` is the one selector, so
+  there is no second axis on which the checked file and the written file can
+  silently diverge.
+- `data/` entirely: the working copy, browser artifact, and raw downloads all
+  move inside `workspaces/<name>/`.
 - `data/lake-r2/catalog.ducklake`; DuckLake prose in README and notebooks.
 
-Added / changed scripts: `pull`, `push`, `verify` (thin), `sandbox` helper
-optional; `ingest` loses restore+publish; new `src/checks.ts`; `config.ts`
-gains `loadEnvFile` and `REMOTE`; `publish.ts` gains ETag capture + conditional
-PUT.
+Added / changed scripts: `pull`, `push`, `verify` (thin); `ingest` loses
+restore+publish; new `src/checks.ts`; `config.ts` gains `loadEnvFile` and
+`WORKSPACE`; `publish.ts` gains ETag capture + conditional PUT.
 
 The public `r2.dev` URL is centralized to one exported constant that the four
 tests import, instead of eight literals.
@@ -176,16 +200,18 @@ the verbs; the false "checked before it ships" claim becomes true.
 ### Migration
 
 The on-disk archive format is unchanged, so existing published files keep
-working. `data/db-r2/` (if present locally) is renamed to `data/db/r2/`; the
-bucket is untouched. First `push` after the change sends `If-None-Match: *`
-harmlessly against the existing object → 412 → fall back to `If-Match` once a
-baseline ETag is known (or a one-time `--force` to adopt the current object).
-This adoption step is the one rough edge and is called out for review.
+working. Local directories move: `data/db/` → `workspaces/default/`,
+`data/db-r2/` (if present) → `workspaces/r2/`; the bucket is untouched. First
+`push` after the change has no recorded ETag, so it sends `If-None-Match: *`
+harmlessly against the existing object → 412 → the error message says to
+`pull` first (adopting the current object and its ETag) or `--force` to
+overwrite blind. This adoption step is the one rough edge and is called out
+for review.
 
 ## Implementation order
 
 1. `src/checks.ts` — extract `CHECKS` + `runChecks`; repoint `test/dq.test.ts`.
-2. `config.ts` — `loadEnvFile`, `REMOTE`, `data/db/<remote>/` path.
+2. `config.ts` — `loadEnvFile`, `WORKSPACE`, the `workspaces/<name>/` layout.
 3. Split `ingest.ts` into `pull.ts` / `ingest.ts` / `push.ts` / `verify.ts`;
    `publish.ts` gains ETag capture and conditional PUT.
 4. `package.json` scripts; `.github/workflows/daily-refresh.yml` → verb
@@ -196,6 +222,6 @@ This adoption step is the one rough edge and is called out for review.
 ## Open questions
 
 - First-push ETag adoption (above): auto-adopt on 412, or require an explicit
-  `--force`? Leaning explicit.
-- Do we keep a standalone `sandbox` script, or is documenting `pull <path>` +
-  `rm` enough? Leaning docs-only to avoid another script.
+  `pull` / `--force`? Leaning explicit.
+- Do we keep a standalone `sandbox` script, or is `WORKSPACE=exp` enough?
+  Leaning env-only to avoid another script.

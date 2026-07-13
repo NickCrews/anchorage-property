@@ -8,7 +8,8 @@ on:
   workflow_dispatch:
 
 # Never let two refreshes write to the database at once; a late manual run
-# just waits for the scheduled one to finish.
+# just waits for the scheduled one to finish. (Local runs are guarded
+# separately: push is a compare-and-swap on the archive's ETag.)
 concurrency:
   group: lake-refresh
   cancel-in-progress: false
@@ -18,7 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      DB_TARGET: r2
+      # No WORKSPACE set: the runner is ephemeral, so the "default" workspace
+      # is fine — named workspaces exist to keep long-lived local copies apart.
       # Non-secret R2 identifiers, same values as .env.example.
       R2_BUCKET: anchorage-property
       R2_ACCOUNT_ID: 9d0e65e8801b8e953ee7cb4c3e840ae8
@@ -38,16 +40,26 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Restores the published archive from R2, scrapes the ArcGIS layer,
-      # merges the snapshot into history, builds the browser artifact, and
-      # publishes both .duckdb files.
+      # The daily refresh is nothing more than the canned verb sequence; every
+      # step is independently runnable and every prefix is a legitimate place
+      # to stop.
+
+      # Download the published archive into the workspace, recording its
+      # ETag as the push baseline.
+      - name: Pull
+        run: pnpm run pull
+
+      # Scrape the ArcGIS layer, SCD2-merge the snapshot into the workspace's
+      # working copy, build the browser artifact. Strictly local.
       - name: Ingest
         run: pnpm run ingest
 
-      # Vitest suite; error-severity checks fail the workflow. Attaches the
-      # .duckdb files the ingest just left on disk (no R2 credentials used).
-      - name: Data quality checks
-        run: pnpm run dq
-        env:
-          DB_ATTACH: data/db-r2/anchorage.duckdb
-          DB_ATTACH_CURRENT: data/db-r2/anchorage-current.duckdb
+      # Full data-quality suite against the files the ingest just wrote.
+      # Error-severity checks fail the workflow — before anything is public.
+      - name: Verify
+        run: pnpm run verify
+
+      # Re-runs the error-severity checks in-process, then uploads with
+      # If-Match on the pulled ETag so a concurrent writer can't be clobbered.
+      - name: Push
+        run: pnpm run push

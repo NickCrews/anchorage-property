@@ -6,10 +6,9 @@
  */
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { PUBLIC_ARCHIVE_URL } from "../src/config.js";
 
-const attach =
-  process.env.DB_ATTACH ??
-  "https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb";
+const attach = process.env.DB_ATTACH ?? PUBLIC_ARCHIVE_URL;
 
 let instance: DuckDBInstance;
 let conn: DuckDBConnection;

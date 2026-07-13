@@ -1,5 +1,6 @@
 /**
- * Ad-hoc SQL against the archive:  npm run sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"
+ * Ad-hoc SQL against the workspace's archive:
+ *   pnpm sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"
  * Attaches the archive under the alias `lake`, exactly as a reader of the
  * published file would.
  */
@@ -13,7 +14,7 @@ if (!sql) {
   process.exit(2);
 }
 
-const { archive } = dbPaths(config.dbDir);
+const { archive } = dbPaths(config.workspaceDir);
 const instance = await DuckDBInstance.create(":memory:");
 const conn = await instance.connect();
 try {
