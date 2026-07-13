@@ -1,0 +1,67 @@
+name: Weekly backup to GitHub release
+
+# Snapshot the published dataset out of R2 into a GitHub release, so a bucket
+# mishap (deleted object, bad push, lost account) never means lost history.
+# Reads over the public URL — no R2 credentials involved.
+
+on:
+  schedule:
+    # Sundays 18:00 UTC — a few hours after the daily refresh (14:00 UTC)
+    # so the backup captures that day's push.
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the tag/release and upload assets
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PUBLIC_BASE_URL: https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download published files
+        run: |
+          curl -fsSL --retry 3 -o anchorage.duckdb "$PUBLIC_BASE_URL/anchorage.duckdb"
+          curl -fsSL --retry 3 -o anchorage-current.duckdb "$PUBLIC_BASE_URL/anchorage-current.duckdb"
+          ls -l anchorage.duckdb anchorage-current.duckdb
+
+      # A DuckDB file that curl happened to truncate would still "download"
+      # fine; refuse to publish anything the engine can't open and query.
+      - name: Verify the archives open
+        run: |
+          curl -fsSL --retry 3 https://install.duckdb.org | sh
+          duckdb=$HOME/.duckdb/cli/latest/duckdb
+          for f in anchorage.duckdb anchorage-current.duckdb; do
+            "$duckdb" -readonly "$f" "SELECT count(*) FROM duckdb_tables()"
+          done
+
+      - name: Create release
+        run: |
+          tag="backup-$(date -u +%Y-%m-%d)"
+          {
+            echo "Automated weekly backup of the published dataset."
+            echo
+            echo "Source: $PUBLIC_BASE_URL"
+            echo '```'
+            for f in anchorage.duckdb anchorage-current.duckdb; do
+              echo "$f  $(stat -c%s "$f") bytes  sha256=$(sha256sum "$f" | cut -d' ' -f1)"
+            done
+            echo '```'
+            echo
+            echo "To restore: upload these files back to the R2 bucket under the same names."
+          } > notes.md
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # A same-day re-run replaces the assets instead of failing.
+            gh release upload "$tag" anchorage.duckdb anchorage-current.duckdb \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" anchorage.duckdb anchorage-current.duckdb \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Backup $(date -u +%Y-%m-%d)" \
+              --notes-file notes.md
+          fi
