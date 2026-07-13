@@ -28,7 +28,6 @@ __generated_with = "0.23.9"
 app = marimo.App(width="medium")
 
 with app.setup:
-    import sys
     from pathlib import Path
 
     import altair as alt
@@ -36,14 +35,10 @@ with app.setup:
     import marimo as mo
     import polars as pl
 
-    # Notebook 1 is a plain importable module; make it importable regardless of
-    # the working directory marimo was launched from.
-    sys.path.insert(0, str(Path(__file__).parent))
-
-    from owner_type_from_exemptions import (  # noqa: E402
-        make_exemption_categorization_macro,
-        sql_str,
-    )
+    def sql_str(value: str) -> str:
+        """Quote a Python string as a SQL string literal."""
+        escaped = value.replace("'", "''")
+        return f"'{escaped}'"
 
     # `owner_name` is three 30-char lines joined by single spaces, so a missing
     # middle line shows up as a double space rather than as a delimiter.
@@ -83,17 +78,22 @@ def _():
 
 @app.cell
 def _():
-    con = duckdb.connect()
-    con.execute(
-        "ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb'"
-        " AS lake (READ_ONLY);"
+    # Prefer the workspace's working copy (fresher, and guaranteed to carry the
+    # exemptions schema after a local ingest); fall back to the published lake.
+    _local = Path(__file__).resolve().parent.parent / "workspaces" / "default" / "anchorage.duckdb"
+    _lake_source = (
+        str(_local)
+        if _local.exists()
+        else "https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb"
     )
+    con = duckdb.connect()
+    con.execute(f"ATTACH '{_lake_source}' AS lake (READ_ONLY);")
 
-    # The exemption rule runs first, and its abstentions are this notebook's input.
-    make_exemption_categorization_macro(con)
+    # The exemption rule ships inside the lake (src/exemptions.ts, presented in
+    # owner_type_from_exemptions.py); its abstentions are this notebook's input.
     con.execute("""
         CREATE OR REPLACE VIEW ambiguous AS
-        SELECT * FROM categorize_by_exemption('lake.parcels_current')
+        SELECT * FROM lake.exemptions.categorize_by_exemption('lake.parcels_current')
         WHERE owner_type IS NULL
     """)
 

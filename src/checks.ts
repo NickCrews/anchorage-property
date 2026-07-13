@@ -28,14 +28,17 @@
  */
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import {
+  CORPORATE_NAME_PATTERN,
   INSTITUTIONAL_EXEMPTION_BASES,
+  OWNER_TYPE_ABSTAINED_BASES,
+  OWNER_TYPE_LABELED_BASES,
+  OWNER_TYPES,
   PERSONAL_EXEMPTION_TYPES,
   RESIDENTIAL_EXEMPTION_TYPES,
+  TRUST_NAME_TOKEN,
+  institutionalBaseSql,
 } from "./exemptions.js";
-
-/** SQL IN-list from a catalog of string values. */
-const sqlList = (values: readonly string[]) =>
-  values.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");
+import { sqlList, sqlStr } from "./quote.js";
 
 export interface Check {
   name: string;
@@ -378,6 +381,122 @@ export const CHECKS: Check[] = [
           FROM lake.parcels_current`,
   },
   // -------------------------------------------------------------------------
+  // Owner-type categorization: the `exemptions` schema shipped inside the
+  // archive (rules tables + categorize_by_exemption macro, created by
+  // ensureSchema at ingest from src/exemptions.ts). Two kinds of check:
+  //
+  //   - error-severity: the macro's own contract — states that are impossible
+  //     if the code is right. Running them through the `lake` alias is itself
+  //     part of the test: a persisted macro whose body picked up a catalog
+  //     qualification at birth only breaks under a different alias, exactly
+  //     like the views (see openCheckConnection).
+  //   - warn-severity: upstream assumptions the rule rests on. Drift here
+  //     should page a human, not block the nightly publish.
+  {
+    name: "owner_type_macro_row_preserving",
+    severity: "error",
+    description: "categorize_by_exemption emits exactly one output row per input row",
+    sql: `SELECT abs(
+            (SELECT count(*) FROM lake.exemptions.categorize_by_exemption('lake.parcels_current'))
+          - (SELECT count(*) FROM lake.parcels_current))`,
+  },
+  {
+    name: "owner_type_basis_known",
+    severity: "error",
+    description: "basis is never NULL and always drawn from the documented vocabulary",
+    sql: `SELECT count(*) FROM lake.exemptions.categorize_by_exemption('lake.parcels_current')
+          WHERE basis IS NULL
+             OR basis NOT IN (${sqlList([...OWNER_TYPE_LABELED_BASES, ...OWNER_TYPE_ABSTAINED_BASES])})`,
+  },
+  {
+    name: "owner_type_label_known",
+    severity: "error",
+    description: "owner_type is NULL (an abstention) or a known category",
+    sql: `SELECT count(*) FROM lake.exemptions.categorize_by_exemption('lake.parcels_current')
+          WHERE owner_type IS NOT NULL AND owner_type NOT IN (${sqlList(OWNER_TYPES)})`,
+  },
+  {
+    name: "owner_type_null_iff_abstained",
+    severity: "error",
+    description: "owner_type is non-NULL exactly when basis is a labeling basis",
+    sql: `SELECT count(*) FROM lake.exemptions.categorize_by_exemption('lake.parcels_current')
+          WHERE (owner_type IS NOT NULL) <> (basis IN (${sqlList(OWNER_TYPE_LABELED_BASES)}))`,
+  },
+  {
+    name: "owner_type_person_name_guards",
+    severity: "error",
+    description:
+      "the name guards are one-directional: nothing labeled person carries a trust or corporate " +
+      "token in owner_name",
+    sql: `SELECT count(*) FROM lake.exemptions.categorize_by_exemption('lake.parcels_current')
+          WHERE owner_type = 'person'
+            AND (contains(owner_name, ${sqlStr(TRUST_NAME_TOKEN)})
+                 OR regexp_matches(owner_name, ${sqlStr(CORPORATE_NAME_PATTERN)}))`,
+  },
+  {
+    name: "owner_type_labeled_only_with_exemption",
+    severity: "error",
+    description: "every labeled parcel carries an exemption — the rule never labels on nothing",
+    sql: `SELECT count(*) FROM lake.exemptions.categorize_by_exemption('lake.parcels_current')
+          WHERE owner_type IS NOT NULL
+            AND exemption_1_type IS NULL AND exemption_2_type IS NULL
+            AND exemption_5_type IS NULL AND exemption_6_type IS NULL`,
+  },
+  {
+    name: "owner_type_bases_all_classified",
+    severity: "warn",
+    description:
+      "every observed institutional base is classified as owner- or use-identifying in the shipped " +
+      "rules tables — an unclassified base means the muni added an exemption category and the " +
+      "macro is silently abstaining on it; eyeball the owners and add it to OWNER_IDENTIFYING_BASES " +
+      "or USE_IDENTIFYING_BASES in src/exemptions.ts",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE coalesce(exemption_1_type, exemption_2_type) IS NOT NULL
+            AND ${institutionalBaseSql("coalesce(exemption_1_type, exemption_2_type)")} NOT IN (
+              SELECT base FROM lake.exemptions.owner_identifying
+              UNION ALL
+              SELECT base FROM lake.exemptions.use_identifying)`,
+    sampleSql: `SELECT DISTINCT ${institutionalBaseSql("coalesce(exemption_1_type, exemption_2_type)")} AS unclassified_base
+                FROM lake.parcels_current
+                WHERE coalesce(exemption_1_type, exemption_2_type) IS NOT NULL
+                  AND ${institutionalBaseSql("coalesce(exemption_1_type, exemption_2_type)")} NOT IN (
+                    SELECT base FROM lake.exemptions.owner_identifying
+                    UNION ALL
+                    SELECT base FROM lake.exemptions.use_identifying)
+                LIMIT 5`,
+  },
+  {
+    name: "owner_type_signals_never_conflict",
+    severity: "warn",
+    description:
+      "the load-bearing claim behind the rule: no parcel carries both an owner-identifying " +
+      "institutional exemption and a personal/residential (slot 5/6) exemption, so the two labels " +
+      "can never fight (0 on all 98,519 parcels as of 2026-07-12)",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE ${institutionalBaseSql("coalesce(exemption_1_type, exemption_2_type)")}
+                IN (SELECT base FROM lake.exemptions.owner_identifying)
+            AND coalesce(exemption_5_type, exemption_6_type) IS NOT NULL`,
+    sampleSql: `SELECT parcel_id, owner_name, exemption_1_type, exemption_5_type, exemption_6_type
+                FROM lake.parcels_current
+                WHERE ${institutionalBaseSql("coalesce(exemption_1_type, exemption_2_type)")}
+                      IN (SELECT base FROM lake.exemptions.owner_identifying)
+                  AND coalesce(exemption_5_type, exemption_6_type) IS NOT NULL LIMIT 5`,
+  },
+  {
+    name: "exemption_slots_1_2_same_base",
+    severity: "warn",
+    description:
+      "slots 1 and 2 never name different exemption bases — the macro reads " +
+      "coalesce(slot 1, slot 2), which is only sound while they agree",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE exemption_1_type IS NOT NULL AND exemption_2_type IS NOT NULL
+            AND ${institutionalBaseSql("exemption_1_type")} <> ${institutionalBaseSql("exemption_2_type")}`,
+    sampleSql: `SELECT parcel_id, exemption_1_type, exemption_2_type FROM lake.parcels_current
+                WHERE exemption_1_type IS NOT NULL AND exemption_2_type IS NOT NULL
+                  AND ${institutionalBaseSql("exemption_1_type")} <> ${institutionalBaseSql("exemption_2_type")}
+                LIMIT 5`,
+  },
+  // -------------------------------------------------------------------------
   // Girdwood: executable proof of the README's classification example,
   // tax_district = '4' (the Girdwood Valley Service Area). The data drifts
   // daily, so counts are asserted as tolerant invariants; exact figures as of
@@ -477,10 +596,9 @@ export async function openCheckConnection(
 ): Promise<{ conn: DuckDBConnection; close(): void }> {
   const instance = await DuckDBInstance.create(":memory:");
   const conn = await instance.connect();
-  const q = (s: string) => s.replace(/'/g, "''");
   await conn.run("INSTALL spatial; LOAD spatial;");
-  await conn.run(`ATTACH '${q(archive)}' AS lake (READ_ONLY)`);
-  await conn.run(`ATTACH '${q(browser)}' AS browser (READ_ONLY)`);
+  await conn.run(`ATTACH ${sqlStr(archive)} AS lake (READ_ONLY)`);
+  await conn.run(`ATTACH ${sqlStr(browser)} AS browser (READ_ONLY)`);
   return {
     conn,
     close() {

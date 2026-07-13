@@ -6,6 +6,7 @@
  */
 import { DuckDBInstance } from "@duckdb/node-api";
 import { config, dbPaths } from "./config.js";
+import { sqlStr } from "./quote.js";
 import { rowObjects } from "./store.js";
 
 const sql = process.argv[2];
@@ -19,7 +20,7 @@ const instance = await DuckDBInstance.create(":memory:");
 const conn = await instance.connect();
 try {
   await conn.run("INSTALL spatial; LOAD spatial;");
-  await conn.run(`ATTACH '${archive.replace(/'/g, "''")}' AS lake (READ_ONLY)`);
+  await conn.run(`ATTACH ${sqlStr(archive)} AS lake (READ_ONLY)`);
   const rows = await rowObjects(conn, sql);
   const plain = (v: unknown): unknown => {
     if (typeof v === "bigint") return Number(v);

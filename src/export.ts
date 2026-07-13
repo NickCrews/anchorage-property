@@ -2,8 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DuckDBInstance } from "@duckdb/node-api";
 import { logger } from "./logger.js";
-
-const sqlQuote = (s: string) => s.replace(/'/g, "''");
+import { sqlStr } from "./quote.js";
 
 /**
  * Build the browser artifact from a checkpointed archive: current rows only,
@@ -29,7 +28,7 @@ export async function buildBrowserArtifact(archivePath: string, outPath: string)
   });
   const conn = await instance.connect();
   try {
-    await conn.run(`ATTACH '${sqlQuote(archivePath)}' AS archive (READ_ONLY)`);
+    await conn.run(`ATTACH ${sqlStr(archivePath)} AS archive (READ_ONLY)`);
     // parcel_id-ordered so per-column zone maps prune on the key people filter by.
     await conn.run(`
       CREATE TABLE parcels_current AS

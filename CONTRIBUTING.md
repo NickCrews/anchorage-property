@@ -246,15 +246,15 @@ the error-severity checks in-process before uploading (this is what makes
 dangerous verb, not bolted on outside), and `pnpm run audit` runs the full
 suite from the CLI.
 
-42 checks, each `error` (impossible states: duplicate current rows,
-overlapping validity intervals, missing geometry, missing owner on a
-positive-value parcel, negative values, parcels outside the Anchorage bbox,
-stale ingest, browser artifact out of sync with the archive) or `warn`
-(real-world dirtiness tolerated up to an allowance — a couple of ~1 m²
-sliver parcels, a few OGC-invalid rings — plus drift tripwires: the exemption
-catalog in [src/exemptions.ts](src/exemptions.ts), the taxable-value
-NULL/0 semantics, and the README's Girdwood classification claims; upstream
-drift should page a human, not block the nightly publish). Error-severity
+Each check in [src/checks.ts](src/checks.ts) is either `error` (impossible
+states: duplicate current rows, overlapping validity intervals, missing
+geometry, missing owner on a positive-value parcel, negative values, parcels
+outside the Anchorage bbox, stale ingest, browser artifact out of sync with
+the archive) or `warn` (real-world dirtiness tolerated up to an allowance —
+a couple of ~1 m² sliver parcels, a few OGC-invalid rings — plus drift
+tripwires: the exemption catalog in [src/exemptions.ts](src/exemptions.ts),
+the taxable-value NULL/0 semantics, and the README's Girdwood classification
+claims; upstream drift should page a human, not block the nightly publish). Error-severity
 failures fail the run so cron/CI can alert; warn-severity overruns log a
 warning but still pass. All timestamps are naive UTC throughout — DQ time
 checks compare against `now() AT TIME ZONE 'UTC'`, never local time.

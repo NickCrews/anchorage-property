@@ -1,9 +1,8 @@
 import { DuckDBConnection } from "@duckdb/node-api";
 import { aggregatedFieldSql, attrHashSql, lakeColumnNames, stagingColumnsSql } from "./fields.js";
 import { logger } from "./logger.js";
+import { sqlStr } from "./quote.js";
 import { scalar } from "./store.js";
-
-const sqlQuote = (s: string) => s.replace(/'/g, "''");
 
 export interface MergeCounts {
   sourceFeatures: number;
@@ -30,7 +29,7 @@ export async function stageSnapshot(conn: DuckDBConnection, ndjsonGlob: string):
   const dropped = Number(
     await scalar(
       conn,
-      `SELECT count(*) FROM read_json('${sqlQuote(ndjsonGlob)}', format = 'newline_delimited',
+      `SELECT count(*) FROM read_json(${sqlStr(ndjsonGlob)}, format = 'newline_delimited',
          columns = {'Parcel_ID': 'VARCHAR'})
        WHERE "Parcel_ID" IS NULL OR "Parcel_ID" = ''`,
     ),
@@ -41,7 +40,7 @@ export async function stageSnapshot(conn: DuckDBConnection, ndjsonGlob: string):
     CREATE OR REPLACE TEMP TABLE snapshot AS
     WITH raw AS (
       SELECT * FROM read_json(
-        '${sqlQuote(ndjsonGlob)}',
+        ${sqlStr(ndjsonGlob)},
         format = 'newline_delimited',
         columns = ${stagingColumnsSql()}
       )
@@ -77,7 +76,7 @@ export async function stageSnapshot(conn: DuckDBConnection, ndjsonGlob: string):
  *   3. insert a fresh current version for every new or changed parcel
  */
 export async function mergeSnapshot(conn: DuckDBConnection, runTsIso: string): Promise<MergeCounts> {
-  const ts = `TIMESTAMP '${sqlQuote(runTsIso.replace("T", " ").replace("Z", ""))}'`;
+  const ts = `TIMESTAMP ${sqlStr(runTsIso.replace("T", " ").replace("Z", ""))}`;
   const cols = ["parcel_id", ...lakeColumnNames(), "feature_count", "geom_wkb", "area_m2", "attr_hash"];
   const colList = cols.map((c) => `"${c}"`).join(", ");
 
@@ -142,10 +141,10 @@ export interface RunRecord extends MergeCounts {
 }
 
 export async function recordRun(conn: DuckDBConnection, r: RunRecord): Promise<void> {
-  const t = (iso: string) => `TIMESTAMP '${sqlQuote(iso.replace("T", " ").replace("Z", ""))}'`;
+  const t = (iso: string) => `TIMESTAMP ${sqlStr(iso.replace("T", " ").replace("Z", ""))}`;
   await conn.run(`
     INSERT INTO ingest_runs VALUES (
-      '${sqlQuote(r.runId)}', ${t(r.startedAtIso)}, ${t(r.finishedAtIso)}, '${sqlQuote(r.status)}',
+      ${sqlStr(r.runId)}, ${t(r.startedAtIso)}, ${t(r.finishedAtIso)}, ${sqlStr(r.status)},
       ${r.serverCount}, ${r.sourceFeatures}, ${r.distinctParcels},
       ${r.newParcels}, ${r.changedParcels}, ${r.retiredParcels}, ${r.unchangedParcels}
     )

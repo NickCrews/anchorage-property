@@ -131,6 +131,20 @@ FROM lake.parcels_current
 WHERE exemption_5_type LIKE 'SENIOR%';
 ```
 
+Who owns a parcel? Some exemptions can only be granted to a particular kind
+of owner, and the archive ships that labeling rule as an `exemptions` schema:
+rules tables (`exemptions.owner_identifying`, `exemptions.use_identifying`)
+plus a table macro that labels ~52% of parcels as
+government/native_corp/nonprofit/hoa/person and abstains (NULL, with a
+`basis` saying why) on the rest — see
+[notebooks/owner_type_from_exemptions.py](notebooks/owner_type_from_exemptions.py)
+for the evidence behind it:
+
+```sql
+SELECT parcel_id, owner_name, owner_type, basis
+FROM lake.exemptions.categorize_by_exemption('lake.parcels_current');
+```
+
 Spatial — parcels within 500 m of a point, with owner (needs `LOAD spatial`;
 geometry lives in the full archive, not the browser file):
 

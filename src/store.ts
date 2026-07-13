@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
+import { exemptionsSchemaSql } from "./exemptions.js";
 import { lakeColumnsDdl } from "./fields.js";
 
 export interface Store {
@@ -102,6 +103,11 @@ export async function ensureSchema(conn: DuckDBConnection): Promise<void> {
     FROM parcels
     WHERE is_current
   `);
+  // The owner-type rules and macros ship inside the archive so readers can
+  // classify without reimplementing them; see src/exemptions.ts.
+  for (const statement of exemptionsSchemaSql()) {
+    await conn.run(statement);
+  }
 }
 
 /** Single-value convenience query. */
