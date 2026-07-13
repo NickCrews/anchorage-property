@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "marimo",
+#     "marimo>=0.23.3",
 #     "duckdb>=1.5.2",
 #     "altair>=5.4",
 #     "polars>=1.10",
@@ -24,7 +24,7 @@ Run with:  uvx marimo edit --sandbox notebooks/owner_type_from_names.py
 
 import marimo
 
-__generated_with = "0.23.13"
+__generated_with = "0.23.9"
 app = marimo.App(width="medium")
 
 with app.setup:
@@ -97,6 +97,7 @@ def _():
         WHERE owner_type IS NULL
     """)
 
+
     def q(sql: str) -> pl.DataFrame:
         return con.execute(sql).pl()
 
@@ -120,7 +121,8 @@ def _():
 def _(con):
     _df = mo.sql(
         f"""
-        FROM ambiguous
+        FROM
+            ambiguous
         """,
         engine=con
     )
@@ -201,36 +203,38 @@ def _(con):
 
 @app.cell
 def _(check):
-    structure_checks = check([
-        (
-            "owner_name is exactly lines 1-3 joined by single spaces, then trimmed",
-            """SELECT count(*) FROM lake.parcels_current
+    structure_checks = check(
+        [
+            (
+                "owner_name is exactly lines 1-3 joined by single spaces, then trimmed",
+                """SELECT count(*) FROM lake.parcels_current
                WHERE owner_name IS DISTINCT FROM trim(
                  owner_line_1 || ' ' || coalesce(owner_line_2, '')
                               || ' ' || coalesce(owner_line_3, ''))""",
-        ),
-        (
-            "no owner line exceeds 30 characters",
-            f"""SELECT count(*) FROM lake.parcels_current WHERE
+            ),
+            (
+                "no owner line exceeds 30 characters",
+                f"""SELECT count(*) FROM lake.parcels_current WHERE
                  length(owner_line_1) > {OWNER_LINE_LENGTH}
               OR length(owner_line_2) > {OWNER_LINE_LENGTH}
               OR length(owner_line_3) > {OWNER_LINE_LENGTH}
               OR length(owner_line_4) > {OWNER_LINE_LENGTH}""",
-        ),
-        (
-            "line 4 (the mailing address) is always present",
-            "SELECT count(*) FROM lake.parcels_current WHERE owner_line_4 IS NULL",
-        ),
-        (
-            "a double space in owner_name comes from a skipped line 2, or from a line that already had one",
-            """SELECT count(*) FROM lake.parcels_current
+            ),
+            (
+                "line 4 (the mailing address) is always present",
+                "SELECT count(*) FROM lake.parcels_current WHERE owner_line_4 IS NULL",
+            ),
+            (
+                "a double space in owner_name comes from a skipped line 2, or from a line that already had one",
+                """SELECT count(*) FROM lake.parcels_current
                WHERE owner_name LIKE '%  %'
                  AND coalesce(owner_line_2, '') != ''
                  AND NOT (owner_line_1 LIKE '%  %'
                        OR coalesce(owner_line_2, '') LIKE '%  %'
                        OR coalesce(owner_line_3, '') LIKE '%  %')""",
-        ),
-    ])
+            ),
+        ]
+    )
     structure_checks
     return
 
@@ -283,20 +287,22 @@ def _(q):
 
 @app.cell
 def _(check):
-    truncation_checks = check([
-        (
-            "the cap is real: some line-1 values sit exactly at 30 chars",
-            f"""SELECT CASE WHEN count(*) FILTER (length(owner_line_1) = {OWNER_LINE_LENGTH}) > 0
+    truncation_checks = check(
+        [
+            (
+                "the cap is real: some line-1 values sit exactly at 30 chars",
+                f"""SELECT CASE WHEN count(*) FILTER (length(owner_line_1) = {OWNER_LINE_LENGTH}) > 0
                            THEN 0 ELSE 1 END FROM lake.parcels_current""",
-        ),
-        (
-            "at-cap line 1 with no continuation is unrecoverable, and there are thousands",
-            f"""SELECT CASE WHEN count(*) FILTER (
+            ),
+            (
+                "at-cap line 1 with no continuation is unrecoverable, and there are thousands",
+                f"""SELECT CASE WHEN count(*) FILTER (
                              length(owner_line_1) = {OWNER_LINE_LENGTH}
                              AND owner_line_2 IS NULL AND owner_line_3 IS NULL) > 1000
                            THEN 0 ELSE 1 END FROM lake.parcels_current""",
-        ),
-    ])
+            ),
+        ]
+    )
     truncation_checks
     return
 
@@ -346,25 +352,27 @@ def _(q):
 
 @app.cell
 def _(check):
-    percent_checks = check([
-        (
-            "an unescaped LIKE '%' matches every row — the wildcard trap is live",
-            """SELECT count(*) - count(*) FILTER (owner_name LIKE '%')
+    percent_checks = check(
+        [
+            (
+                "an unescaped LIKE '%' matches every row — the wildcard trap is live",
+                """SELECT count(*) - count(*) FILTER (owner_name LIKE '%')
                FROM lake.parcels_current""",
-        ),
-        (
-            "escaping it finds the names that really contain a percent sign",
-            r"""SELECT abs(
+            ),
+            (
+                "escaping it finds the names that really contain a percent sign",
+                r"""SELECT abs(
                   count(*) FILTER (owner_name LIKE '%\%%' ESCAPE '\')
                 - count(*) FILTER (contains(owner_name, '%')))
                 FROM lake.parcels_current""",
-        ),
-        (
-            "contains() is unaffected by the wildcard, and finds strictly fewer rows than a bare LIKE",
-            """SELECT CASE WHEN count(*) FILTER (contains(owner_name, '%')) < count(*)
+            ),
+            (
+                "contains() is unaffected by the wildcard, and finds strictly fewer rows than a bare LIKE",
+                """SELECT CASE WHEN count(*) FILTER (contains(owner_name, '%')) < count(*)
                           THEN 0 ELSE 1 END FROM lake.parcels_current""",
-        ),
-    ])
+            ),
+        ]
+    )
     percent_checks
     return
 
@@ -437,38 +445,40 @@ def _():
 def _(check):
     _clean = clean_owner_name_sql()
     _agent = sql_str(AGENT_FRAGMENT_PATTERN)
-    cleaner_checks = check([
-        (
-            "the cleaner never empties a name",
-            f"SELECT count(*) FROM lake.parcels_current WHERE {_clean} = ''",
-        ),
-        (
-            "no agent fragment survives cleaning",
-            f"""SELECT count(*) FROM lake.parcels_current
+    cleaner_checks = check(
+        [
+            (
+                "the cleaner never empties a name",
+                f"SELECT count(*) FROM lake.parcels_current WHERE {_clean} = ''",
+            ),
+            (
+                "no agent fragment survives cleaning",
+                f"""SELECT count(*) FROM lake.parcels_current
                 WHERE regexp_matches({_clean}, {_agent})""",
-        ),
-        (
-            "cleaning is idempotent",
-            f"""SELECT count(*) FROM lake.parcels_current
+            ),
+            (
+                "cleaning is idempotent",
+                f"""SELECT count(*) FROM lake.parcels_current
                 WHERE {clean_owner_name_sql(_clean)} != {_clean}""",
-        ),
-        (
-            "no double spaces survive cleaning",
-            f"SELECT count(*) FROM lake.parcels_current WHERE {_clean} LIKE '%  %'",
-        ),
-        (
-            "exactly 3 names lose a fractional share (irreducibly ambiguous, listed below)",
-            rf"""SELECT abs(3 - count(*)) FROM lake.parcels_current
+            ),
+            (
+                "no double spaces survive cleaning",
+                f"SELECT count(*) FROM lake.parcels_current WHERE {_clean} LIKE '%  %'",
+            ),
+            (
+                "exactly 3 names lose a fractional share (irreducibly ambiguous, listed below)",
+                rf"""SELECT abs(3 - count(*)) FROM lake.parcels_current
                  WHERE regexp_matches(owner_name, '[0-9]%')
                    AND NOT regexp_matches({_clean}, '[0-9]%')""",
-        ),
-        (
-            "exactly 9 names still hold an unparseable % after cleaning",
-            rf"""SELECT abs(9 - count(*)) FROM lake.parcels_current
+            ),
+            (
+                "exactly 9 names still hold an unparseable % after cleaning",
+                rf"""SELECT abs(9 - count(*)) FROM lake.parcels_current
                  WHERE contains({_clean}, '%')
                    AND NOT regexp_matches({_clean}, '[0-9]\s*%')""",
-        ),
-    ])
+            ),
+        ]
+    )
     cleaner_checks
     return
 
@@ -621,8 +631,10 @@ def _(residual):
                 legend=None,
                 scale=alt.Scale(
                     domain=residual["disposition"].to_list(),
-                    range=["#4c78a8" if d.startswith("residual") else "#b0b8c4"
-                           for d in residual["disposition"]],
+                    range=[
+                        "#4c78a8" if d.startswith("residual") else "#b0b8c4"
+                        for d in residual["disposition"]
+                    ],
                 ),
             ),
             tooltip=["disposition", "n", "pct"],
