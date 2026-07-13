@@ -2,8 +2,8 @@
  * Catalog of every exemption value observed in the MOA PropertyInformation
  * layer (full history through 2026-07-05). The layer publishes these as free
  * strings — no ArcGIS coded-value domain — so this list is maintained by
- * observation and test/exemptions.test.ts fails whenever the muni starts
- * publishing a value that isn't here yet.
+ * observation, and the exemption checks in src/checks.ts warn whenever the
+ * muni starts publishing a value that isn't here yet.
  *
  * How the exemption columns fit together:
  *

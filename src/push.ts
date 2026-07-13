@@ -1,9 +1,10 @@
 /**
  * push [path] [--force] — working copy → remote, guarded twice:
  *
- * 1. Self-verifying: the error-severity checks run in-process against the
- *    exact files about to be uploaded, and any failure refuses the push. The
- *    gate belongs to the dangerous verb, so no script ordering can forget it.
+ * 1. Self-gating: the error-severity checks run in-process against the exact
+ *    files about to be uploaded, and any failure refuses the push. The gate
+ *    belongs to the dangerous verb, so no script ordering can forget it.
+ *    (`audit` runs the full suite, warns included, from the CLI.)
  * 2. Compare-and-swap: the archive PUT sends If-Match with the ETag recorded
  *    by the last pull (If-None-Match: * when there is none — create-if-absent
  *    for an empty bucket). If the remote moved since the pull, the push fails

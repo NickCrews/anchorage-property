@@ -4,10 +4,11 @@
  *
  *   - `push` runs the error-severity checks in-process against the copy it is
  *     about to upload and refuses to upload on any failure;
- *   - `verify` runs the full suite from the CLI against any copy;
- *   - test/dq.test.ts wraps each check in a vitest `it()` for CI reporting.
+ *   - `audit` runs the full suite from the CLI against any copy (the
+ *     workspace's by default, or the published URLs with --published).
  *
- * One list, so the gate and the audit can never drift.
+ * One list, so the gate and the audit can never drift. Code tests live in
+ * test/ and run with vitest; assertions about the *data* live here.
  *
  * Each check's SQL returns the number of VIOLATING rows; the check passes
  * when that count is <= allowance.
@@ -26,6 +27,15 @@
  * do.
  */
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
+import {
+  INSTITUTIONAL_EXEMPTION_BASES,
+  PERSONAL_EXEMPTION_TYPES,
+  RESIDENTIAL_EXEMPTION_TYPES,
+} from "./exemptions.js";
+
+/** SQL IN-list from a catalog of string values. */
+const sqlList = (values: readonly string[]) =>
+  values.map((v) => `'${v.replace(/'/g, "''")}'`).join(", ");
 
 export interface Check {
   name: string;
@@ -164,12 +174,13 @@ export const CHECKS: Check[] = [
   {
     name: "value_components_add_up",
     severity: "warn",
-    description: "land + building ≈ total appraised value",
+    description:
+      "appraised total = land + building on every parcel (exact over all 98,519 parcels on " +
+      "2026-07-05; sub-cent tolerance guards against future rounding in the DOUBLE columns)",
     sql: `SELECT count(*) FROM lake.parcels_current
           WHERE appraised_total_value IS NOT NULL
             AND abs(coalesce(appraised_land_value, 0) + coalesce(appraised_building_value, 0)
-                    - appraised_total_value) > 1`,
-    allowance: 100,
+                    - appraised_total_value) > 0.005`,
   },
   {
     name: "taxable_le_appraised",
@@ -227,6 +238,222 @@ export const CHECKS: Check[] = [
     sql: `SELECT count(*) FROM duckdb_columns()
           WHERE database_name = 'browser' AND table_name = 'parcels_current'
             AND column_name IN ('geom_wkb', 'attr_hash')`,
+  },
+  // -------------------------------------------------------------------------
+  // Exemptions: the catalog in src/exemptions.ts is maintained by observation
+  // (the layer has no coded-value domain), and these checks are the tripwire
+  // that catches the muni introducing a new exemption type or restructuring
+  // the columns. All warn-severity: upstream drift should page a human, not
+  // block the nightly publish.
+  {
+    name: "exemption_institutional_types_known",
+    severity: "warn",
+    description:
+      "every slot-1/2 value, after stripping ' - LAND', is a known institutional base — a new one " +
+      "means the muni added an exemption category; eyeball it (watch for upstream typos like " +
+      "NAVITE) and add it to INSTITUTIONAL_EXEMPTION_BASES",
+    sql: `SELECT count(*) FROM (
+            SELECT DISTINCT regexp_replace(v, ' - LAND$', '') AS base FROM (
+              SELECT exemption_1_type AS v FROM lake.parcels_current
+              UNION ALL
+              SELECT exemption_2_type FROM lake.parcels_current
+            ) WHERE v IS NOT NULL
+          ) WHERE base NOT IN (${sqlList(INSTITUTIONAL_EXEMPTION_BASES)})`,
+    sampleSql: `SELECT DISTINCT regexp_replace(v, ' - LAND$', '') AS unknown_base FROM (
+                  SELECT exemption_1_type AS v FROM lake.parcels_current
+                  UNION ALL
+                  SELECT exemption_2_type FROM lake.parcels_current
+                ) WHERE v IS NOT NULL
+                  AND regexp_replace(v, ' - LAND$', '') NOT IN (${sqlList(INSTITUTIONAL_EXEMPTION_BASES)})
+                LIMIT 5`,
+  },
+  {
+    name: "exemption_personal_types_known",
+    severity: "warn",
+    description:
+      "slot 5 holds the personal state-mandated exemptions (senior / disabled vet / military " +
+      "widow(er)) and nothing else",
+    sql: `SELECT count(*) FROM (
+            SELECT DISTINCT exemption_5_type AS v FROM lake.parcels_current
+            WHERE exemption_5_type IS NOT NULL
+          ) WHERE v NOT IN (${sqlList(PERSONAL_EXEMPTION_TYPES)})`,
+    sampleSql: `SELECT DISTINCT exemption_5_type FROM lake.parcels_current
+                WHERE exemption_5_type IS NOT NULL
+                  AND exemption_5_type NOT IN (${sqlList(PERSONAL_EXEMPTION_TYPES)}) LIMIT 5`,
+  },
+  {
+    name: "exemption_residential_types_known",
+    severity: "warn",
+    description: "slot 6 holds only the residential exemption",
+    sql: `SELECT count(*) FROM (
+            SELECT DISTINCT exemption_6_type AS v FROM lake.parcels_current
+            WHERE exemption_6_type IS NOT NULL
+          ) WHERE v NOT IN (${sqlList(RESIDENTIAL_EXEMPTION_TYPES)})`,
+  },
+  {
+    name: "exemption_group_flag_consistent",
+    severity: "warn",
+    description:
+      "exemption_type_group is exactly the documented two-value flag: 'No Exemptions' iff all " +
+      "four slots are empty, 'Other' otherwise — if the muni splits 'Other' into real groups, " +
+      "the catalog needs a fresh look",
+    sql: `SELECT count(*) FILTER (coalesce(exemption_type_group, '') NOT IN ('No Exemptions', 'Other'))
+               + count(*) FILTER (
+                   (exemption_type_group = 'No Exemptions') <>
+                   (exemption_1_type IS NULL AND exemption_2_type IS NULL
+                    AND exemption_5_type IS NULL AND exemption_6_type IS NULL)
+                 )
+          FROM lake.parcels_current`,
+  },
+  {
+    name: "exemption_type_iff_amount",
+    severity: "warn",
+    description: "a slot's type is non-null exactly when its amount is nonzero",
+    sql: `SELECT count(*) FILTER ((exemption_1_type IS NOT NULL) <> (coalesce(exemption_1_amount, 0) <> 0))
+               + count(*) FILTER ((exemption_2_type IS NOT NULL) <> (coalesce(exemption_2_amount, 0) <> 0))
+               + count(*) FILTER ((exemption_5_type IS NOT NULL) <> (coalesce(exemption_5_amount, 0) <> 0))
+               + count(*) FILTER ((exemption_6_type IS NOT NULL) <> (coalesce(exemption_6_amount, 0) <> 0))
+          FROM lake.parcels_current`,
+  },
+  {
+    name: "exemption_total_is_sum",
+    severity: "warn",
+    description: "total_exemptions = sum of the four slot amounts (sub-cent tolerance)",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE abs(coalesce(total_exemptions, 0)
+                    - (coalesce(exemption_1_amount, 0) + coalesce(exemption_2_amount, 0)
+                       + coalesce(exemption_5_amount, 0) + coalesce(exemption_6_amount, 0))) > 0.005`,
+  },
+  {
+    name: "taxable_equals_appraised_minus_exemptions",
+    severity: "warn",
+    description:
+      "taxable_value = appraised_total_value − total_exemptions on every parcel (compared through " +
+      "coalesce because a zero difference is stored as either 0 or NULL)",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE abs(coalesce(taxable_value, 0)
+                    - (coalesce(appraised_total_value, 0) - coalesce(total_exemptions, 0))) > 0.005`,
+  },
+  {
+    name: "taxable_null_zero_semantics",
+    severity: "warn",
+    description:
+      "NULL taxable_value marks an unvalued parcel (no appraisal, no exemptions) and an explicit 0 " +
+      "marks a valued-but-fully-exempted one — the split is meaningful, verified disjoint upstream " +
+      "2026-07-06, and the importer preserves the NULL",
+    sql: `SELECT count(*) FILTER (
+            taxable_value IS NULL
+            AND (coalesce(appraised_total_value, 0) <> 0 OR coalesce(total_exemptions, 0) <> 0)
+          )
+        + count(*) FILTER (taxable_value = 0 AND coalesce(total_exemptions, 0) = 0)
+          FROM lake.parcels_current`,
+  },
+  {
+    name: "taxable_negative_rare",
+    severity: "warn",
+    description:
+      "taxable_value goes negative only on a handful of over-exempted parcels (6 on 2026-07-05, " +
+      "e.g. a senior exemption capped above a low appraised value)",
+    sql: `SELECT count(*) FROM lake.parcels_current WHERE taxable_value < 0`,
+    allowance: 100,
+  },
+  {
+    name: "net_taxable_never_null_or_negative",
+    severity: "warn",
+    description: "net_taxable_value (upstream NetTaxableValue) is never NULL and never negative",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE net_taxable_value IS NULL OR net_taxable_value < 0`,
+  },
+  {
+    name: "net_taxable_tracks_taxable",
+    severity: "warn",
+    description:
+      "net_taxable_value = greatest(taxable_value, 0) on ≥99.5% of parcels — the stragglers carry " +
+      "a tax-roll-side number the CAMA columns can't reproduce (134 on 2026-07-05); growth here " +
+      "means the columns have genuinely diverged and src/exemptions.ts needs a fresh look",
+    sql: `SELECT CASE WHEN count(*) FILTER (
+                        abs(coalesce(net_taxable_value, 0)
+                            - greatest(coalesce(taxable_value, 0), 0)) > 0.005
+                      ) > 0.005 * count(*) THEN 1 ELSE 0 END
+          FROM lake.parcels_current`,
+  },
+  // -------------------------------------------------------------------------
+  // Girdwood: executable proof of the README's classification example,
+  // tax_district = '4' (the Girdwood Valley Service Area). The data drifts
+  // daily, so counts are asserted as tolerant invariants; exact figures as of
+  // 2026-07-05 are noted per check. Warn-severity: a shifted boundary is a
+  // documentation problem, not a publish blocker.
+  {
+    name: "girdwood_district_4_sized_right",
+    severity: "warn",
+    description: "tax district '4' exists (spelled '4', not '04') and is Girdwood-sized (1,851 parcels on 2026-07-05)",
+    sql: `SELECT CASE WHEN count(*) BETWEEN 1000 AND 3000 THEN 0 ELSE 1 END
+          FROM lake.parcels_current WHERE tax_district = '4'`,
+  },
+  {
+    name: "girdwood_no_foreign_addresses",
+    severity: "warn",
+    description:
+      "the boundary doesn't leak: every district-4 parcel has a Girdwood site address or none at " +
+      "all — never Anchorage, Eagle River, Chugiak, or Indian",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE tax_district = '4' AND gis_site_city IS NOT NULL AND gis_site_city <> 'Girdwood'`,
+    sampleSql: `SELECT DISTINCT gis_site_city FROM lake.parcels_current
+                WHERE tax_district = '4' AND gis_site_city IS NOT NULL AND gis_site_city <> 'Girdwood'
+                LIMIT 5`,
+  },
+  {
+    name: "girdwood_addresses_mostly_in_district_4",
+    severity: "warn",
+    description:
+      "the two definitions agree on the core: ≥95% of Girdwood-addressed parcels are in district 4",
+    sql: `SELECT CASE WHEN count(*) FILTER (tax_district = '4') >= 0.95 * count(*) THEN 0 ELSE 1 END
+          FROM lake.parcels_current WHERE gis_site_city = 'Girdwood'`,
+  },
+  {
+    name: "girdwood_stragglers_only_on_fringe",
+    severity: "warn",
+    description:
+      "Girdwood-addressed parcels outside district 4 sit only in district '15' (the Turnagain Arm " +
+      "fringe) or have a blank district — never another numbered district",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE gis_site_city = 'Girdwood' AND tax_district <> '4'
+            AND tax_district IS NOT NULL AND tax_district NOT IN ('15', '')`,
+    sampleSql: `SELECT DISTINCT tax_district FROM lake.parcels_current
+                WHERE gis_site_city = 'Girdwood' AND tax_district <> '4'
+                  AND tax_district IS NOT NULL AND tax_district NOT IN ('15', '') LIMIT 5`,
+  },
+  {
+    name: "girdwood_addressless_mostly_vacant",
+    severity: "warn",
+    description:
+      "the district test catches what the address test misses: district 4 holds a few hundred " +
+      "address-less parcels, ≥80% of them building-less (290 parcels, 91% vacant, on 2026-07-05)",
+    sql: `SELECT CASE WHEN count(*) >= 100
+                       AND count(*) FILTER (coalesce(appraised_building_value, 0) = 0) >= 0.8 * count(*)
+                      THEN 0 ELSE 1 END
+          FROM lake.parcels_current WHERE tax_district = '4' AND gis_site_city IS NULL`,
+  },
+  {
+    name: "girdwood_geometry_in_valley",
+    severity: "warn",
+    description:
+      "district 4 is geographically Girdwood: every parcel's geometry falls inside a generous " +
+      "Girdwood-valley bbox, nowhere near the Anchorage Bowl (~ -149.9, 61.2)",
+    sql: `SELECT count(*) FROM (
+            SELECT ST_GeomFromWKB(geom_wkb) AS g FROM lake.parcels_current WHERE tax_district = '4'
+          ) WHERE ST_XMin(g) < -149.3 OR ST_XMax(g) > -148.9
+             OR ST_YMin(g) < 60.85 OR ST_YMax(g) > 61.05`,
+  },
+  {
+    name: "girdwood_legal_description_undercounts",
+    severity: "warn",
+    description:
+      "the legal-description alternative stays much worse: matching '%GIRDWOOD%' finds well under " +
+      "a quarter of the service area's parcels (242 of 1,851 on 2026-07-05)",
+    sql: `SELECT CASE WHEN count(*) FILTER (upper(legal_description) LIKE '%GIRDWOOD%')
+                      < 0.25 * count(*) FILTER (tax_district = '4') THEN 0 ELSE 1 END
+          FROM lake.parcels_current`,
   },
 ];
 

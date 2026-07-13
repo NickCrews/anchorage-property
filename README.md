@@ -119,8 +119,8 @@ handful of over-exempted parcels. Meanwhile
 parcels carries a tax-roll number the other columns can't reproduce — prefer
 `taxable_value` when relating values to exemptions.
 The full catalog of observed values, and the column semantics, are documented
-in [src/exemptions.ts](src/exemptions.ts) and enforced by
-`npm run test:exemptions`. Query the slot columns, not `exemption_types_all`
+in [src/exemptions.ts](src/exemptions.ts) and enforced by the data-quality
+audit ([src/checks.ts](src/checks.ts)). Query the slot columns, not `exemption_types_all`
 (a lossy upstream concatenation, truncated at 100 characters) and not
 `exemption_type_group` (only ever `'Other'` / `'No Exemptions'`). For
 example, every senior-exempt parcel:
@@ -158,7 +158,7 @@ not at the beginning of MOA's records.
 be keyed. `PUBDATE` is stored but excluded from change detection, so the
 nightly republish never creates spurious history versions.
 
-A 24-check data-quality suite gates every publish — nothing ships until the
+A 42-check data-quality audit gates every publish — nothing ships until the
 error-severity checks pass (no duplicate current rows, no overlapping
 validity intervals, no missing geometry, values non-negative, parcels within
 the Anchorage bbox, freshness, browser file in sync with the archive, ...). A few known real-world warts exist in the source

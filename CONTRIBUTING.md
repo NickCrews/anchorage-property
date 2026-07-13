@@ -27,18 +27,20 @@ Change detection is driven by `attr_hash` — md5 over all metadata + geometry.
 
 ## The data lifecycle
 
-The lifecycle is modeled on `git` (see
-[ADR 0001](docs/adr/0001-data-lifecycle-verbs.md)): **the archive in R2 is the
-only source of truth; a working copy is a local, ETag-validated cache of it,
-living in a named workspace; a sandbox is just another workspace.** Each
-action is an independently runnable verb:
+The lifecycle is modeled on `git`: **the archive in R2 is the only source of
+truth; a working copy is a local, ETag-validated cache of it, living in a
+named workspace; a sandbox is just another workspace.** Each action is an
+independently runnable verb:
 
 | Verb | Does | Network |
 | --- | --- | --- |
 | `pnpm pull [path]` | remote archive → workspace; records the source ETag | in only |
 | `pnpm ingest [path]` | fetch upstream + SCD2-merge into the workspace's copy + build browser artifact | upstream in only; **never touches the remote** |
-| `pnpm verify [path]` | run the data-quality checks against a copy (or the published files) | none, or HTTPS if pointed at URLs |
+| `pnpm run audit [path]` | run the data-quality checks against a copy (`--published` for the published files) | none, or HTTPS if pointed at URLs |
 | `pnpm push [path]` | workspace's copy → remote, guarded (see below) | out only |
+
+(`audit` is the one verb that needs the `run`: bare `pnpm audit` is pnpm's
+built-in dependency vulnerability scan, and built-ins shadow scripts.)
 
 "Don't push" is the default, not something you must prevent:
 
@@ -51,7 +53,7 @@ pnpm push            # only if and when you decide to
 ```
 
 The daily CI job is nothing more than the canned sequence
-`pull && ingest && verify && push` — a script, not a special mode — and every
+`pull && ingest && audit && push` — a script, not a special mode — and every
 prefix of that sequence is a legitimate place to stop.
 
 ### Workspaces
@@ -67,7 +69,7 @@ decided by credentials — `pull`/`push` need the `R2_*` variables and refuse
 with a clear message without them. Whether a sync is *safe* is decided by
 lineage, tracked by the ETag sidecar:
 
-- **`push` is self-verifying:** it runs the error-severity checks in-process
+- **`push` is self-gating:** it runs the error-severity checks in-process
   against the exact files it is about to upload and refuses on any failure,
   so an ingest is always checked before it ships. `--force` is the escape
   hatch.
@@ -125,12 +127,11 @@ alias to catch regressions.
 ```sh
 pnpm install
 
-pnpm pull       # remote archive -> workspace (needs the R2_* variables, usually via .env)
-pnpm ingest     # fetch full layer -> SCD2-merge into the workspace + build browser file
-pnpm verify     # data-quality checks against the workspace (or pass paths/URLs)
-pnpm push       # verify + compare-and-swap upload of both files
-pnpm dq         # the same checks as a vitest suite over the published files (HTTPS)
-pnpm test       # offline SCD2 merge test against a throwaway database
+pnpm pull            # remote archive -> workspace (needs the R2_* variables, usually via .env)
+pnpm ingest          # fetch full layer -> SCD2-merge into the workspace + build browser file
+pnpm run audit       # data-quality audit of the workspace (or pass paths/URLs, or --published)
+pnpm push            # error-severity gate + compare-and-swap upload of both files
+pnpm test            # code tests: offline SCD2 merge against a throwaway database
 pnpm sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"   # ad-hoc queries
 ```
 
@@ -151,7 +152,7 @@ is just the verb sequence:
 
 ```cron
 # every day at 06:15, keep a log trail
-15 6 * * * cd /Users/nc/anchorage-parcel-lake && pnpm pull && pnpm ingest && pnpm verify && pnpm push >> refresh-cron.log 2>&1
+15 6 * * * cd /Users/nc/anchorage-parcel-lake && pnpm pull && pnpm ingest && pnpm run audit && pnpm push >> refresh-cron.log 2>&1
 ```
 
 (That is exactly what [.github/workflows/daily-refresh.yml](.github/workflows/daily-refresh.yml)
@@ -226,25 +227,37 @@ A credential-less contributor can still do everything local: `pnpm ingest`
 bootstraps a fresh database in their workspace, and that locally-born history
 is protected from a later accidental `pull` by the unrelated-histories guard.
 
-## Data quality
+## Testing and data quality
+
+Two kinds of assertion, two entry points:
+
+- **`pnpm test`** exercises *code*: the offline SCD2 merge test against a
+  throwaway database with synthetic snapshots. Hermetic — no workspace, no
+  network, no credentials.
+- **`pnpm run audit`** interrogates *data*: every check we know how to make
+  about the archive and browser artifact, against the workspace's working
+  copy by default (the natural moment is right after `ingest`, before
+  `push`), or any path/URL, or the published dataset with `--published`.
 
 The checks live in one place — [src/checks.ts](src/checks.ts) — and every
 gate and audit is a wrapper over that list, so they cannot drift: `push` runs
 the error-severity checks in-process before uploading (this is what makes
 "an ingest is checked before it ships" true — the gate is intrinsic to the
-dangerous verb, not bolted on outside), `pnpm verify` runs the full suite
-from the CLI against any copy or the published URLs, and `pnpm dq` wraps each
-check in a vitest `it()` for CI-style reporting.
+dangerous verb, not bolted on outside), and `pnpm run audit` runs the full
+suite from the CLI.
 
-24 checks, each `error` (impossible states: duplicate current rows,
+42 checks, each `error` (impossible states: duplicate current rows,
 overlapping validity intervals, missing geometry, missing owner on a
 positive-value parcel, negative values, parcels outside the Anchorage bbox,
-stale ingest, browser artifact out of sync with the archive) or `warn` with
-an allowance for real-world dirtiness verified in the source (a couple of
-~1 m² sliver parcels, a few OGC-invalid rings). Error-severity failures fail
-the run so cron/CI can alert; warn-severity overruns log a warning but still
-pass. All timestamps are naive UTC throughout — DQ time checks compare
-against `now() AT TIME ZONE 'UTC'`, never local time.
+stale ingest, browser artifact out of sync with the archive) or `warn`
+(real-world dirtiness tolerated up to an allowance — a couple of ~1 m²
+sliver parcels, a few OGC-invalid rings — plus drift tripwires: the exemption
+catalog in [src/exemptions.ts](src/exemptions.ts), the taxable-value
+NULL/0 semantics, and the README's Girdwood classification claims; upstream
+drift should page a human, not block the nightly publish). Error-severity
+failures fail the run so cron/CI can alert; warn-severity overruns log a
+warning but still pass. All timestamps are naive UTC throughout — DQ time
+checks compare against `now() AT TIME ZONE 'UTC'`, never local time.
 
 ## Safety rails
 

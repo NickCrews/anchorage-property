@@ -54,10 +54,10 @@ jobs:
       - name: Ingest
         run: pnpm run ingest
 
-      # Full data-quality suite against the files the ingest just wrote.
+      # Full data-quality audit of the files the ingest just wrote.
       # Error-severity checks fail the workflow — before anything is public.
-      - name: Verify
-        run: pnpm run verify
+      - name: Audit
+        run: pnpm run audit
 
       # Re-runs the error-severity checks in-process, then uploads with
       # If-Match on the pulled ETag so a concurrent writer can't be clobbered.

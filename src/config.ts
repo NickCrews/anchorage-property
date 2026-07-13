@@ -44,8 +44,8 @@ export const BROWSER_KEY = "anchorage-current.duckdb";
 
 /**
  * Public base URL of the canonical published dataset. This is where readers —
- * and the test suites' defaults — find the data. (R2_PUBLIC_URL in config.r2
- * is different: it is where *this writer's* bucket is served, for anyone
+ * and `audit --published` — find the data. (R2_PUBLIC_URL in config.r2 is
+ * different: it is where *this writer's* bucket is served, for anyone
  * publishing their own copy.)
  */
 export const PUBLIC_BASE_URL = "https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev";

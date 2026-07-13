@@ -12,15 +12,10 @@
   "scripts": {
     "pull": "tsx src/pull.ts",
     "ingest": "tsx src/ingest.ts",
-    "verify": "tsx src/verify.ts",
+    "audit": "tsx src/audit.ts",
     "push": "tsx src/push.ts",
-    "dq": "vitest run test/dq.test.ts",
     "sql": "tsx src/sql.ts",
-    "test": "vitest run test/merge.test.ts",
-    "test:girdwood": "vitest run test/girdwood.test.ts",
-    "test:exemptions": "vitest run test/exemptions.test.ts",
-    "test:general": "vitest run test/general.test.ts",
-    "test:all": "vitest run",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
