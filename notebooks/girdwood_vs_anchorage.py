@@ -11,7 +11,7 @@
 """Girdwood vs the rest of the Municipality of Anchorage.
 
 Explores parcel counts, appraised values, parcel sizes, and building ages,
-querying the public anchorage-parcel-lake DuckLake directly over HTTPS.
+querying the public anchorage-parcel-lake DuckDB database directly over HTTPS.
 
 Run with:  uvx marimo edit --sandbox notebooks/girdwood_vs_anchorage.py
 """

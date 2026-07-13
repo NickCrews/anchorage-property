@@ -13,7 +13,7 @@
 Compares the rate and amount of the 'OWNERS PRIMARY RESIDENCE' exemption
 (slot 6) between Girdwood and the rest of the Municipality of Anchorage,
 then asks where the owners of the *non*-exempt homes live. Queries the
-public anchorage-parcel-lake DuckLake directly over HTTPS.
+public anchorage-parcel-lake DuckDB database directly over HTTPS.
 
 Run with:  uvx marimo edit --sandbox notebooks/who_owns_girdwood.py
 """

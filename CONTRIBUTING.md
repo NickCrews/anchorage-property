@@ -25,6 +25,76 @@ never creates spurious history versions.
 
 Change detection is driven by `attr_hash` — md5 over all metadata + geometry.
 
+## The data lifecycle
+
+The lifecycle is modeled on `git` (see
+[ADR 0001](docs/adr/0001-data-lifecycle-verbs.md)): **the archive in R2 is the
+only source of truth; a working copy is a local, ETag-validated cache of it,
+living in a named workspace; a sandbox is just another workspace.** Each
+action is an independently runnable verb:
+
+| Verb | Does | Network |
+| --- | --- | --- |
+| `pnpm pull [path]` | remote archive → workspace; records the source ETag | in only |
+| `pnpm ingest [path]` | fetch upstream + SCD2-merge into the workspace's copy + build browser artifact | upstream in only; **never touches the remote** |
+| `pnpm verify [path]` | run the data-quality checks against a copy (or the published files) | none, or HTTPS if pointed at URLs |
+| `pnpm push [path]` | workspace's copy → remote, guarded (see below) | out only |
+
+"Don't push" is the default, not something you must prevent:
+
+```sh
+pnpm pull            # prod -> workspaces/<name>/anchorage.duckdb, remembers ETag
+pnpm ingest          # merge today's snapshot into it, local only
+pnpm sql -- "..."    # inspect
+# walk away: remote untouched, nothing published
+pnpm push            # only if and when you decide to
+```
+
+The daily CI job is nothing more than the canned sequence
+`pull && ingest && verify && push` — a script, not a special mode — and every
+prefix of that sequence is a legitimate place to stop.
+
+### Workspaces
+
+A workspace is a directory `workspaces/<name>/` holding one working copy and
+everything that belongs to it: the archive, the browser artifact, the ETag
+sidecar recording which remote object the copy descends from, and per-run raw
+downloads. `WORKSPACE=<name>` selects it (default `default`); every verb
+targets the selected workspace unless given an explicit path.
+
+The name is only a label for a local context. Whether a sync is *possible* is
+decided by credentials — `pull`/`push` need the `R2_*` variables and refuse
+with a clear message without them. Whether a sync is *safe* is decided by
+lineage, tracked by the ETag sidecar:
+
+- **`push` is self-verifying:** it runs the error-severity checks in-process
+  against the exact files it is about to upload and refuses on any failure,
+  so an ingest is always checked before it ships. `--force` is the escape
+  hatch.
+- **`push` is a compare-and-swap:** it sends the pulled ETag as `If-Match`,
+  so if prod moved since your pull (CI ran, someone else pushed) the push
+  fails with HTTP 412 instead of silently clobbering remote history. With no
+  recorded baseline (fresh empty bucket) it sends `If-None-Match: *` —
+  create-if-absent. To adopt an existing remote you never pulled:
+  `pnpm pull` (then re-ingest), or `pnpm push --force` to knowingly
+  overwrite.
+- **`pull` refuses unrelated histories:** an archive with no ETag sidecar was
+  born locally — pulling over it would destroy history that was never the
+  remote's. `pull` refuses, with `--force` as the escape hatch; refreshing a
+  tracked copy overwrites freely.
+
+A throwaway clone of prod is just another workspace:
+
+```sh
+WORKSPACE=exp pnpm pull            # clone prod to workspaces/exp/
+WORKSPACE=exp pnpm sql -- "..."    # poke at it
+rm -rf workspaces/exp              # discard
+```
+
+No `push` is aimed at it, and even a mistaken one is caught by the
+compare-and-swap unless the copy genuinely descends from the current remote
+object.
+
 ## The published artifacts
 
 Each run produces two `.duckdb` files, both written at
@@ -33,11 +103,11 @@ no extension:
 
 - **`anchorage.duckdb`** — the archive and the system of record: `parcels`
   (full SCD2 history, all columns including `geom_wkb` and `attr_hash`),
-  `ingest_runs`, and the `parcels_current` view. The nightly job restores
-  this file from the bucket, SCD2-merges the fresh snapshot into it,
-  checkpoints, and republishes it.
+  `ingest_runs`, and the `parcels_current` view. The daily job pulls this
+  file from the bucket, SCD2-merges the fresh snapshot into it, checkpoints,
+  verifies, and pushes it back.
 - **`anchorage-current.duckdb`** — the browser artifact, derived from the
-  archive after each merge: `parcels_current` as a materialised table
+  archive by each ingest: `parcels_current` as a materialised table
   (current rows only, `geom_wkb` and `attr_hash` dropped) plus `ingest_runs`.
   Browsers download attached files whole (duckdb-wasm never issues range
   requests), so this file is kept small and does not grow with history.
@@ -47,24 +117,27 @@ created while that file is the **primary** database, not while it is
 `ATTACH`ed under an alias — DuckDB bakes the creating session's catalog
 qualification into the view body, and the view then breaks under any other
 reader alias. `src/store.ts` opens the archive as the primary database for
-exactly this reason, and the DQ suite attaches the published file under an
+exactly this reason, and the DQ checks attach the published file under an
 alias to catch regressions.
 
 ## Commands
 
 ```sh
-npm install
+pnpm install
 
-npm run ingest   # fetch full layer → SCD2-merge into the archive + build browser file (the cron command)
-npm run dq       # data-quality suite (vitest) over the published files; DB_ATTACH / DB_ATTACH_CURRENT override
-npm run daily    # ingest + dq over the local database in one shot
-npm test         # offline SCD2 merge test against a throwaway database
-npm run sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"   # ad-hoc queries
+pnpm pull       # remote archive -> workspace (needs the R2_* variables, usually via .env)
+pnpm ingest     # fetch full layer -> SCD2-merge into the workspace + build browser file
+pnpm verify     # data-quality checks against the workspace (or pass paths/URLs)
+pnpm push       # verify + compare-and-swap upload of both files
+pnpm dq         # the same checks as a vitest suite over the published files (HTTPS)
+pnpm test       # offline SCD2 merge test against a throwaway database
+pnpm sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"   # ad-hoc queries
 ```
 
-Each command has a `:prod` variant (`ingest:prod`, `daily:prod`, `sql:prod`)
-that loads `.env` and operates on the public R2 files instead of the
-local dev database — see [Publishing to Cloudflare R2](#publishing-to-cloudflare-r2).
+There are no `:prod` script variants: `src/config.ts` loads `.env`
+automatically (real environment variables win over the file), so the same
+command does the right thing for a contributor with no `.env` (local
+workspace, no credentials), on a laptop with `.env`, and in CI.
 
 All commands emit structured JSON logs (pino) on stdout — one event per line
 (`fetch_progress`, `merge_start`, `ingest_done`, ...). Pipe through
@@ -73,52 +146,62 @@ All commands emit structured JSON logs (pino) on stdout — one event per line
 ### Cron
 
 The ingest is idempotent (an unchanged upstream produces zero new rows), so
-running it more often than the source updates is harmless.
+running it more often than the source updates is harmless. The daily refresh
+is just the verb sequence:
 
 ```cron
 # every day at 06:15, keep a log trail
-15 6 * * * cd /Users/nc/anchorage-parcel-lake && /usr/bin/env npm run daily >> data/cron.log 2>&1
+15 6 * * * cd /Users/nc/anchorage-parcel-lake && pnpm pull && pnpm ingest && pnpm verify && pnpm push >> refresh-cron.log 2>&1
 ```
+
+(That is exactly what [.github/workflows/daily-refresh.yml](.github/workflows/daily-refresh.yml)
+runs, one verb per step.)
 
 ## Layout
 
 ```
-data/db/anchorage.duckdb            archive, dev target (gitignored)
-data/db/anchorage-current.duckdb    browser artifact, dev target
-data/db-r2/                         same two files for the R2 target (writer's local copy)
-data/raw/<run-id>/                  raw NDJSON pages (deleted after success; KEEP_RAW=1 to retain)
+workspaces/<name>/anchorage.duckdb          the workspace's working copy of the archive
+workspaces/<name>/anchorage-current.duckdb  browser artifact derived from it
+workspaces/<name>/anchorage.duckdb.etag     remote ETag as of the last pull/push — the
+                                            lineage marker behind both clobber guards
+workspaces/<name>/raw/<run-id>/             raw NDJSON pages (deleted after success;
+                                            KEEP_RAW=1 to retain)
 ```
 
-## Querying the dev database
+`WORKSPACE` (default `default`) picks the `<name>`; the whole `workspaces/`
+tree is gitignored.
 
-`npm run sql -- "..."` attaches the archive as `lake`, exactly like a reader
-of the published file. Any DuckDB ≥ 1.0 works too:
+## Querying a workspace
+
+`pnpm sql -- "..."` attaches the workspace's archive as `lake`, exactly like
+a reader of the published file. Any DuckDB ≥ 1.0 works too:
 
 ```sql
 LOAD spatial;
-ATTACH 'data/db/anchorage.duckdb' AS lake (READ_ONLY);
+ATTACH 'workspaces/default/anchorage.duckdb' AS lake (READ_ONLY);
 ```
 
 ## Publishing to Cloudflare R2
 
 Both files are served publicly from the bucket: anyone can query them over
-HTTPS with no credentials.
+HTTPS with no credentials. Publishing needs the `R2_*` variables (usually via
+`.env`); `pull` and `push` are the only commands that use them. How a publish
+works:
 
-How it works (`DB_TARGET=r2`, set via `.env` for the `:prod` scripts):
-
-- The writer works on a local copy of the archive at
-  `data/db-r2/anchorage.duckdb`. If that file is missing (fresh checkout,
-  ephemeral CI runner), it is first restored by downloading `anchorage.duckdb`
-  from the bucket; only if the bucket has none either (very first run) is a
-  fresh database bootstrapped.
-- The merge runs inside a single transaction against the local file; the
-  session is closed with a checkpoint so no `.wal` remains, and the run
-  refuses to publish if one does.
-- The browser artifact is derived from the closed archive, then both files
-  are uploaded. Each PUT is atomic per object, so readers never see a torn
-  file — but the two objects can briefly disagree with each other
-  mid-refresh, which is accepted and documented rather than engineered
-  around.
+- `pull` downloads `anchorage.duckdb` from the bucket into the workspace and
+  records its ETag. On an empty bucket it no-ops (the first `push` then
+  creates the object with `If-None-Match: *`).
+- `ingest` merges inside a single transaction against the local file; the
+  session is closed with a checkpoint so no `.wal` remains, and both `ingest`
+  and `push` refuse to proceed if one does. The browser artifact is derived
+  from the closed archive.
+- `push` re-runs the error-severity checks against the exact files on disk,
+  then uploads the archive with `If-Match: <pulled etag>` and the browser
+  artifact after it with no precondition. Each PUT is atomic per object, so
+  readers never see a torn file — but the two objects can briefly disagree
+  with each other mid-refresh, which is accepted and documented rather than
+  engineered around. (R2's honoring of `If-Match`/`If-None-Match` on PUT was
+  verified against the live bucket on 2026-07-10.)
 - The archive's size is logged on every run (`archive_size`); a single PUT is
   right at today's ~56 MB, and that log line is how we notice it approaching
   multipart-upload territory.
@@ -132,46 +215,57 @@ One-time setup:
 3. R2 → Manage API tokens → create a token with **Object Read & Write** scoped
    to the bucket.
 4. `cp .env.example .env` and fill in bucket, account ID, token keys, public URL.
-5. `npm run daily:prod` — bootstraps the database, backfills the full layer,
-   publishes.
+5. `pnpm pull && pnpm ingest && pnpm push` — bootstraps the database,
+   backfills the full layer, publishes.
 
 To also serve browser-based clients (e.g. [shell.duckdb.org](https://shell.duckdb.org)),
 add a CORS policy on the bucket (Settings → CORS) allowing `GET` from the
 origins you care about.
 
-The dev and prod databases are fully independent: `npm run ingest` never
-touches R2, and the prod archive's history starts at its own first ingest.
+A credential-less contributor can still do everything local: `pnpm ingest`
+bootstraps a fresh database in their workspace, and that locally-born history
+is protected from a later accidental `pull` by the unrelated-histories guard.
 
 ## Data quality
 
-`npm run dq` runs [test/dq.test.ts](test/dq.test.ts) — 24 checks, each `error`
-(impossible states: duplicate current rows, overlapping validity intervals,
-missing geometry, missing owner on a positive-value parcel, negative values,
-parcels outside the Anchorage bbox, stale ingest, browser artifact out of
-sync with the archive) or `warn` with an allowance for real-world dirtiness
-verified in the source (a couple of ~1 m² sliver parcels, a few OGC-invalid
-rings). Error-severity failures fail the vitest run so cron/CI can alert;
-warn-severity overruns log a warning but still pass. By default the suite
-attaches the published files over HTTPS like the other tests;
-`npm run daily` / `daily:prod` point `DB_ATTACH` / `DB_ATTACH_CURRENT` at the
-files the ingest just wrote, so an ingest is checked before it ships. All
-timestamps are naive UTC throughout — DQ time checks compare against
-`now() AT TIME ZONE 'UTC'`, never local time.
+The checks live in one place — [src/checks.ts](src/checks.ts) — and every
+gate and audit is a wrapper over that list, so they cannot drift: `push` runs
+the error-severity checks in-process before uploading (this is what makes
+"an ingest is checked before it ships" true — the gate is intrinsic to the
+dangerous verb, not bolted on outside), `pnpm verify` runs the full suite
+from the CLI against any copy or the published URLs, and `pnpm dq` wraps each
+check in a vitest `it()` for CI-style reporting.
+
+24 checks, each `error` (impossible states: duplicate current rows,
+overlapping validity intervals, missing geometry, missing owner on a
+positive-value parcel, negative values, parcels outside the Anchorage bbox,
+stale ingest, browser artifact out of sync with the archive) or `warn` with
+an allowance for real-world dirtiness verified in the source (a couple of
+~1 m² sliver parcels, a few OGC-invalid rings). Error-severity failures fail
+the run so cron/CI can alert; warn-severity overruns log a warning but still
+pass. All timestamps are naive UTC throughout — DQ time checks compare
+against `now() AT TIME ZONE 'UTC'`, never local time.
 
 ## Safety rails
 
-- The run aborts **before merging** if fewer than 99% of the server-reported
+- The ingest aborts **before merging** if fewer than 99% of the server-reported
   features were fetched, or if the snapshot has < 95% of the archive's current
   parcel count (a broken upstream export would otherwise spuriously "retire"
   thousands of parcels). Override the latter with `ALLOW_SHRINK=1`.
 - The SCD2 merge runs in a single transaction — a crash mid-merge leaves the
   archive at the previous snapshot.
-- The run refuses to publish if a `.wal` file remains beside the archive
-  after close.
+- `ingest` and `push` refuse to proceed if a `.wal` file remains beside the
+  archive after close.
+- `push` refuses to upload a copy that fails any error-severity check.
+- `push` is a compare-and-swap on the archive's ETag, so a stale working copy
+  cannot silently clobber remote history.
+- `pull` refuses to overwrite a locally-born database (no recorded ETag), so
+  the remote cannot silently clobber local history either.
 
 ## Configuration
 
-Config via env vars: `DB_TARGET`, `DB_DIR`, `RAW_DIR`, `KEEP_RAW`,
-`PAGE_SIZE`, `FETCH_CONCURRENCY`, `FETCH_RETRIES`, `FETCH_TIMEOUT_MS`,
+Config via env vars (`src/config.ts` loads `.env` automatically; real
+environment variables win): `WORKSPACE`, `KEEP_RAW`, `PAGE_SIZE`,
+`FETCH_CONCURRENCY`, `FETCH_RETRIES`, `FETCH_TIMEOUT_MS`,
 `MIN_SNAPSHOT_RATIO`, `ALLOW_SHRINK`, `LOG_LEVEL`, `MOA_SERVICE_URL`, and the
 `R2_*` variables in `.env.example`.

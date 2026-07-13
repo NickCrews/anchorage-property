@@ -8,8 +8,9 @@
 """Can a WASM-exported marimo notebook read a .duckdb file from a public URL?
 
 Background: exporting these notebooks with `marimo export html-wasm` swaps native
-duckdb for the Pyodide build, which cannot load extensions. That kills the
-`ATTACH 'ducklake:https://...'` we use elsewhere, since ducklake is an extension.
+duckdb for the Pyodide build, which cannot load extensions. That killed the
+`ATTACH 'ducklake:https://...'` this project used before it published plain
+.duckdb files, since ducklake is an extension.
 
 This notebook probes whether attaching a plain .duckdb file would fare better.
 It runs the same probes natively and under WASM so the two can be compared:
@@ -100,7 +101,7 @@ def _(mo):
         ## Probe 1 — extensions
 
         Establishes the baseline failure. `httpfs` is what teaches DuckDB to read
-        `https://` paths at all; `ducklake` is what the other notebooks attach.
+        `https://` paths at all; `ducklake` is what this project's earlier DuckLake incarnation attached.
         Both are extensions, so both are expected to fail under Pyodide.
         """
     )

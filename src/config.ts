@@ -1,34 +1,69 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/**
- * Which database the commands operate on:
- *   local (default) — .duckdb files under data/db, nothing leaves the machine,
- *                     no credentials needed.
- *   r2              — .duckdb files under data/db-r2, restored from and
- *                     published to the R2 bucket after each ingest. Requires
- *                     the R2_* variables below (npm scripts load them from .env).
- */
-const dbTarget = (process.env.DB_TARGET ?? "local") as "local" | "r2";
+// Load .env once, here, for every entry point. Real environment variables win
+// over the file (Node's documented precedence), so CI's env: block and ad-hoc
+// `WORKSPACE=exp pnpm ...` overrides behave as expected.
+const envFile = path.join(projectRoot, ".env");
+if (fs.existsSync(envFile)) {
+  process.loadEnvFile(envFile);
+}
 
-/** Published object keys — also the local file names under dbDir. */
+if (process.env.DB_TARGET !== undefined) {
+  throw new Error(
+    "DB_TARGET has been replaced by workspaces — remove it and (optionally) set " +
+      "WORKSPACE instead. See CONTRIBUTING.md: the lifecycle is now pull / ingest / verify / push.",
+  );
+}
+
+/**
+ * Which local workspace the verbs operate on. A workspace is a directory
+ * `workspaces/<name>/` holding one working copy of the archive together with
+ * everything that belongs to it: the browser artifact, the ETag sidecar
+ * recording which remote object it descends from, and per-run raw downloads.
+ *
+ * The name is just a label for a local context ("default", "r2", a throwaway
+ * experiment) — whether a push/pull is possible is decided by the R2_*
+ * credentials, and whether it is safe is decided by the lineage guards
+ * (pull's unrelated-history refusal, push's compare-and-swap), not by the
+ * workspace's name.
+ */
+const workspace = process.env.WORKSPACE ?? "default";
+if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(workspace) || workspace.includes("..")) {
+  throw new Error(
+    `WORKSPACE must be a simple directory name (letters, digits, . _ -), got "${workspace}".`,
+  );
+}
+
+/** Published object keys — also the local file names inside a workspace. */
 export const ARCHIVE_KEY = "anchorage.duckdb";
 export const BROWSER_KEY = "anchorage-current.duckdb";
+
+/**
+ * Public base URL of the canonical published dataset. This is where readers —
+ * and the test suites' defaults — find the data. (R2_PUBLIC_URL in config.r2
+ * is different: it is where *this writer's* bucket is served, for anyone
+ * publishing their own copy.)
+ */
+export const PUBLIC_BASE_URL = "https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev";
+export const PUBLIC_ARCHIVE_URL = `${PUBLIC_BASE_URL}/${ARCHIVE_KEY}`;
+export const PUBLIC_BROWSER_URL = `${PUBLIC_BASE_URL}/${BROWSER_KEY}`;
 
 export const config = {
   projectRoot,
 
-  dbTarget,
+  workspace,
 
   /** ArcGIS FeatureServer layer: MOA parcel boundaries merged with Property Appraisal CAMA data. */
   serviceUrl:
     process.env.MOA_SERVICE_URL ??
     "https://services2.arcgis.com/Ce3DhLRthdwbHlfF/arcgis/rest/services/PropertyInformation_Hosted/FeatureServer/0",
 
-  /** Directory holding the archive and browser .duckdb files. */
-  dbDir: process.env.DB_DIR ?? path.join(projectRoot, "data", dbTarget === "r2" ? "db-r2" : "db"),
+  /** The selected workspace's directory — the default target of every verb. */
+  workspaceDir: path.join(projectRoot, "workspaces", workspace),
 
   r2: {
     bucket: process.env.R2_BUCKET ?? "",
@@ -39,9 +74,7 @@ export const config = {
     publicUrl: (process.env.R2_PUBLIC_URL ?? "").replace(/\/+$/, ""),
   },
 
-  /** Directory for raw per-run NDJSON downloads (deleted after a successful run unless KEEP_RAW=1). */
-  rawDir: process.env.RAW_DIR ?? path.join(projectRoot, "data", "raw"),
-
+  /** Keep the per-run raw NDJSON downloads instead of deleting them after a successful run. */
   keepRaw: process.env.KEEP_RAW === "1",
 
   pageSize: Number(process.env.PAGE_SIZE ?? 2000),
@@ -58,11 +91,22 @@ export const config = {
   allowShrink: process.env.ALLOW_SHRINK === "1",
 };
 
-export function dbPaths(dbDir: string) {
+export function dbPaths(dir: string) {
   return {
-    archive: path.join(dbDir, ARCHIVE_KEY),
-    browser: path.join(dbDir, BROWSER_KEY),
+    archive: path.join(dir, ARCHIVE_KEY),
+    browser: path.join(dir, BROWSER_KEY),
   };
+}
+
+/**
+ * Sidecar file remembering the remote archive's ETag as of the last pull (or
+ * push) — the lineage marker tying a working copy to the remote object it
+ * descends from. `push` sends it as If-Match so a stale copy cannot silently
+ * clobber remote history; `pull` treats its absence beside an existing
+ * archive as "locally-born database" and refuses to overwrite it.
+ */
+export function etagPath(archivePath: string) {
+  return `${archivePath}.etag`;
 }
 
 export interface R2Config {
@@ -79,7 +123,8 @@ export function requireR2Config(): R2Config {
     .map(([k]) => `R2_${k.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase()}`);
   if (missing.length > 0) {
     throw new Error(
-      `DB_TARGET=r2 requires ${missing.join(", ")} — copy .env.example to .env and fill it in.`,
+      `No remote configured: pull/push need ${missing.join(", ")} — ` +
+        `copy .env.example to .env and fill it in. Every other command works without a remote.`,
     );
   }
   return config.r2;

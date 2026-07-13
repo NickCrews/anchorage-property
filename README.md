@@ -13,7 +13,7 @@ no extension to install — just DuckDB (any version ≥ 1.0).
 
 ```sql
 ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage.duckdb' AS lake (READ_ONLY);
-
+--or, smaller download, see below: ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS lake (READ_ONLY);
 SELECT count(*) FROM lake.parcels_current;
 ```
 
@@ -31,12 +31,7 @@ no matter how large the archive grows).
   ([shell.duckdb.org](https://shell.duckdb.org), duckdb-wasm, Pyodide/marimo)
   download whatever file they attach *in full* — they never range-read — so
   this file exists to keep that download small, and it does not grow as
-  history accumulates. Attach it exactly like the archive:
-
-  ```sql
-  ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS lake (READ_ONLY);
-  SELECT count(*) FROM lake.parcels_current;
-  ```
+  history accumulates.
 
 ## What's in the archive
 
@@ -155,18 +150,18 @@ The Municipality of Anchorage publishes an official ArcGIS Feature Service,
 [`PropertyInformation_Hosted`](https://services2.arcgis.com/Ce3DhLRthdwbHlfF/arcgis/rest/services/PropertyInformation_Hosted/FeatureServer/0)
 ("parcel boundaries merged with Property Appraisal CAMA information, updated
 daily except weekends"). A daily scraper pages through it and SCD2-merges the
-snapshot into the archive; the history starts at its first ingest, not at
-the beginning of MOA's records.
+snapshot into the archive; the history starts at its first ingest (early July 2026),
+not at the beginning of MOA's records.
 
 ~1k source features with an empty `Parcel_ID` and all-null attributes
 (uncatalogued geometry slivers with no CAMA record) are dropped — they cannot
 be keyed. `PUBDATE` is stored but excluded from change detection, so the
 nightly republish never creates spurious history versions.
 
-A 24-check data-quality suite runs after every ingest (no duplicate current
-rows, no overlapping validity intervals, no missing geometry, values
-non-negative, parcels within the Anchorage bbox, freshness, browser file in
-sync with the archive, ...). A few known real-world warts exist in the source
+A 24-check data-quality suite gates every publish — nothing ships until the
+error-severity checks pass (no duplicate current rows, no overlapping
+validity intervals, no missing geometry, values non-negative, parcels within
+the Anchorage bbox, freshness, browser file in sync with the archive, ...). A few known real-world warts exist in the source
 and are allowed through: a couple of ~1 m² sliver parcels and a few
 OGC-invalid rings.
 
@@ -178,16 +173,7 @@ OGC-invalid rings.
 - The two files are published as separate objects, so during the daily
   refresh (~06:00 Anchorage) they can briefly disagree with each other.
 - **Time travel is the explicit SCD2 columns.** `valid_from` / `valid_to` /
-  `is_current` answer every "as of" question, as in the examples above. The
-  earlier DuckLake incarnation of this project additionally offered physical
-  snapshot time travel (`AT (VERSION => n)`); that second, redundant
-  mechanism went away with the format change.
-- **Migrating from the DuckLake?** This dataset was previously published as a
-  DuckLake catalog (`ATTACH 'ducklake:https://.../catalog.ducklake'`). That
-  format required DuckDB ≥ 1.5.2 plus the `ducklake` extension, cost every
-  query a 5 MB catalog fetch, and served browsers the full history +
-  geometry. It has been replaced by the two files above and is no longer
-  updated. Switch by replacing your attach string with the quick-start one.
+  `is_current` answer every "as of" question, as in the examples above.
 - This is a read-only mirror with history, not the system of record. For
   authoritative data, go to the
   [MOA property database](https://property.muni.org/).
