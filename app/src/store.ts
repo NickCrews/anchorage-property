@@ -2,7 +2,6 @@ import {createWasmDuckDbConnector} from '@sqlrooms/duckdb';
 import {createMosaicSlice} from '@sqlrooms/mosaic';
 import {MosaicSliceState} from '@sqlrooms/mosaic/dist/MosaicSlice';
 import {
-  BaseRoomConfig,
   createRoomShellSlice,
   createRoomStore,
   LayoutConfig,
@@ -37,8 +36,13 @@ export const {roomStore, useRoomStore} = createRoomStore<RoomState>(
   persistSliceConfigs(
     {
       name: 'anchorage-parcel-explorer-state',
+      // `room` (title + dataSources) is deliberately NOT persisted: it's
+      // static code config, and rehydrating it replays whatever dataSources a
+      // previous version of the app wrote to localStorage. An early build
+      // loaded parcels via a `sql` data source reading `source.parcels_current`;
+      // rehydrating that entry re-ran it against a long-detached catalog and
+      // crashed the app at startup.
       sliceConfigSchemas: {
-        room: BaseRoomConfig,
         layout: LayoutConfig,
         sqlEditor: SqlEditorSliceConfig,
         mapSettings: MapSettingsConfig,
