@@ -25,9 +25,10 @@ Where the artifact comes from (see `src/config.ts`):
 - **production build**: the canonical published dataset on R2.
 - `VITE_DATA_URL` overrides both.
 
-The map draws each parcel at its centroid (`centroid_lon` / `centroid_lat`,
-which `src/export.ts` in the repo root computes into the browser artifact),
-colored by appraised total value.
+The map draws each parcel's real outline (`geom_wkb`, simplified to ~1 m
+tolerance by `src/export.ts` in the repo root when it builds the browser
+artifact), colored by appraised total value. The hover-brush still tests
+distance against `centroid_lon` / `centroid_lat`, which ship alongside.
 
 ## Running
 

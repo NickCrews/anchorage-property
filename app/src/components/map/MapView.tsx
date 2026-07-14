@@ -91,12 +91,12 @@ export const MapView: FC<{className?: string}> = ({className}) => {
             ? BASE_COLUMNS
             : [...BASE_COLUMNS, colorField]),
           {
-            geom: sql`ST_AsWKB(ST_Point(centroid_lon, centroid_lat))`,
+            geom: sql`geom_wkb`,
           },
         )
         // A single .where() call: the filter param arrives nullish before the
         // first selection, and Mosaic drops null clauses.
-        .where(filter, sql`centroid_lon IS NOT NULL`)
+        .where(filter, sql`geom_wkb IS NOT NULL`)
         // Ascending by the color field so high values draw on top; for
         // categorical fields this also fixes the category → color assignment
         // to alphabetical order.
@@ -151,7 +151,7 @@ export const MapView: FC<{className?: string}> = ({className}) => {
       initialViewState: INITIAL_VIEW_STATE,
       layers: [
         {
-          '@@type': 'GeoArrowScatterplotLayer',
+          '@@type': 'GeoArrowPolygonLayer',
           id: 'parcels',
           _sqlroomsBinding: {
             dataset: 'parcels',
@@ -161,12 +161,15 @@ export const MapView: FC<{className?: string}> = ({className}) => {
             ...colorScale,
           },
           filled: true,
-          stroked: false,
+          // Meter-wide strokes capped at a hairline: lot boundaries appear as
+          // you zoom in but shrink sub-pixel (invisible) at bowl-wide zooms,
+          // where 100k outlines would smear into mush.
+          stroked: true,
+          getLineColor: [0, 0, 0, 64],
+          getLineWidth: 2,
+          lineWidthUnits: 'meters',
+          lineWidthMaxPixels: 1,
           pickable: !enableBrushing,
-          getRadius: 25,
-          radiusUnits: 'meters',
-          radiusMinPixels: 1,
-          radiusMaxPixels: 8,
         },
       ],
     }),

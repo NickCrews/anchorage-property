@@ -255,17 +255,27 @@ export const CHECKS: Check[] = [
   {
     name: "browser_drops_heavy_columns",
     severity: "error",
-    description: "browser artifact does not carry geom_wkb (40% of bytes) or attr_hash (internal)",
+    description: "browser artifact does not carry attr_hash (internal change detection)",
     sql: `SELECT count(*) FROM duckdb_columns()
           WHERE database_name = 'browser' AND table_name = 'parcels_current'
-            AND column_name IN ('geom_wkb', 'attr_hash')`,
+            AND column_name = 'attr_hash'`,
+  },
+  {
+    name: "browser_carries_geometry",
+    severity: "error",
+    description:
+      "browser artifact has a (simplified) polygon wherever the archive has geometry — the map in " +
+      "the data app renders parcel outlines from these, so an export that loses them ships a blank map",
+    sql: `SELECT count(*) FROM browser.parcels_current b
+          JOIN lake.parcels_current l USING (parcel_id)
+          WHERE l.geom_wkb IS NOT NULL AND b.geom_wkb IS NULL`,
   },
   {
     name: "browser_carries_centroids",
     severity: "error",
     description:
-      "browser artifact has a centroid wherever the archive has geometry — the map in the data app " +
-      "renders from these, so an export that loses them ships a blank map",
+      "browser artifact has a centroid wherever the archive has geometry — the map's hover-brush " +
+      "predicate is a distance test on these",
     sql: `SELECT count(*) FROM browser.parcels_current b
           JOIN lake.parcels_current l USING (parcel_id)
           WHERE l.geom_wkb IS NOT NULL

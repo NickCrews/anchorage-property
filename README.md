@@ -27,9 +27,9 @@ no matter how large the archive grows).
   included. Use this from the DuckDB CLI, Python, or anything that can
   range-read over HTTPS.
 - **`anchorage-current.duckdb`** — the browser file: current rows only, no
-  polygon geometry (`geom_wkb`) and no internal `attr_hash`, but parcel
-  centroids (`centroid_lon` / `centroid_lat`, EPSG:4326) so browser clients
-  can still map parcels; ~23 MB. Browser clients
+  internal `attr_hash`, polygon geometry (`geom_wkb`) simplified to ~1 m
+  tolerance, plus parcel centroids (`centroid_lon` / `centroid_lat`,
+  EPSG:4326); ~36 MB. Browser clients
   ([shell.duckdb.org](https://shell.duckdb.org), duckdb-wasm, Pyodide/marimo)
   download whatever file they attach *in full* — they never range-read — so
   this file exists to keep that download small, and it does not grow as
