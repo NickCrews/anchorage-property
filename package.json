@@ -15,6 +15,7 @@
     "audit": "tsx src/audit.ts",
     "push": "tsx src/push.ts",
     "sql": "tsx src/sql.ts",
+    "app": "pnpm --dir app dev",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

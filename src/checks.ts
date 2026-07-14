@@ -242,6 +242,17 @@ export const CHECKS: Check[] = [
           WHERE database_name = 'browser' AND table_name = 'parcels_current'
             AND column_name IN ('geom_wkb', 'attr_hash')`,
   },
+  {
+    name: "browser_carries_centroids",
+    severity: "error",
+    description:
+      "browser artifact has a centroid wherever the archive has geometry — the map in the data app " +
+      "renders from these, so an export that loses them ships a blank map",
+    sql: `SELECT count(*) FROM browser.parcels_current b
+          JOIN lake.parcels_current l USING (parcel_id)
+          WHERE l.geom_wkb IS NOT NULL
+            AND (b.centroid_lon IS NULL OR b.centroid_lat IS NULL)`,
+  },
   // -------------------------------------------------------------------------
   // Exemptions: the catalog in src/exemptions.ts is maintained by observation
   // (the layer has no coded-value domain), and these checks are the tripwire

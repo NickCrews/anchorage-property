@@ -27,11 +27,29 @@ no matter how large the archive grows).
   included. Use this from the DuckDB CLI, Python, or anything that can
   range-read over HTTPS.
 - **`anchorage-current.duckdb`** — the browser file: current rows only, no
-  geometry (`geom_wkb`) and no internal `attr_hash`, ~23 MB. Browser clients
+  polygon geometry (`geom_wkb`) and no internal `attr_hash`, but parcel
+  centroids (`centroid_lon` / `centroid_lat`, EPSG:4326) so browser clients
+  can still map parcels; ~23 MB. Browser clients
   ([shell.duckdb.org](https://shell.duckdb.org), duckdb-wasm, Pyodide/marimo)
   download whatever file they attach *in full* — they never range-read — so
   this file exists to keep that download small, and it does not grow as
   history accumulates.
+
+## The parcel explorer app
+
+[`app/`](app/) is a browser data app for exploring the dataset — a
+[SQLRooms](https://sqlrooms.org/) room with a deck.gl parcel map, cross-filtered
+[Mosaic](https://idl.uw.edu/mosaic/) charts, a profiler table, and a SQL
+editor, all running on duckdb-wasm with no backend. It attaches the browser
+file above and copies it into memory once; every interaction after that is a
+local query.
+
+```sh
+pnpm run app   # dev server against workspaces/<WORKSPACE>/anchorage-current.duckdb
+```
+
+Production builds (`pnpm --dir app build`) read the published browser file
+instead.
 
 ## What's in the archive
 
