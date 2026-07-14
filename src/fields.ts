@@ -23,6 +23,22 @@ export interface FieldSpec {
   volatile?: boolean;
 }
 
+/**
+ * Plausible window for the YearBuilt family. The source carries sentinels and
+ * typos (literal 1, 1190, and future years 2030–2036 observed 2026-07):
+ * nothing in the municipality predates the oldest gold-rush-era structures,
+ * and a building cannot be built later than next year. cleanSnapshot
+ * (pipeline.ts) nullifies values outside the window; the year_built_plausible
+ * audit check asserts the same window over the lake.
+ */
+export const YEAR_BUILT_FLOOR = 1850;
+export const YEAR_BUILT_CEILING_SQL = `(extract(year FROM current_date) + 1)`;
+
+/** TRUE when expr holds a plausible year-built value; FALSE on anything else (including NULL). */
+export function plausibleYearPredicateSql(expr: string): string {
+  return `coalesce(TRY_CAST(${expr} AS INTEGER) BETWEEN ${YEAR_BUILT_FLOOR} AND ${YEAR_BUILT_CEILING_SQL}, false)`;
+}
+
 export const FIELDS: FieldSpec[] = [
   { src: "Appraisal_Year", dst: "appraisal_year", type: "INTEGER" },
   { src: "Parcel_ID_URL", dst: "parcel_id_url", type: "VARCHAR" },

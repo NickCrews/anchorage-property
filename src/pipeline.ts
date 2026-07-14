@@ -1,8 +1,31 @@
 import { DuckDBConnection } from "@duckdb/node-api";
-import { aggregatedFieldSql, attrHashSql, lakeColumnNames, stagingColumnsSql } from "./fields.js";
+import {
+  aggregatedFieldSql,
+  attrHashSql,
+  lakeColumnNames,
+  plausibleYearPredicateSql,
+  stagingColumnsSql,
+} from "./fields.js";
 import { logger } from "./logger.js";
 import { sqlStr } from "./quote.js";
 import { scalar } from "./store.js";
+
+/**
+ * Cleaning pass over the casted, aggregated snapshot: nullify known-impossible
+ * source values so they never enter the lake. One SELECT over the whole table
+ * (not per-column expressions) so rules that need cross-row or cross-column
+ * context — window functions, joins against the rest of the snapshot — slot in
+ * beside the scalar ones. Runs before the change-detection hash, so cleaned
+ * values are what versioning sees.
+ */
+function cleanSnapshotSql(from: string): string {
+  const yearOrNull = (col: string) => `CASE WHEN ${plausibleYearPredicateSql(col)} THEN ${col} END AS ${col}`;
+  return `SELECT * REPLACE (
+        ${yearOrNull("year_built")},
+        ${yearOrNull("year_built_min")},
+        ${yearOrNull("year_built_max")}
+      ) FROM ${from}`;
+}
 
 export interface MergeCounts {
   sourceFeatures: number;
@@ -63,9 +86,12 @@ export async function stageSnapshot(conn: DuckDBConnection, ndjsonGlob: string):
              ELSE ST_Area(ST_Transform(geom, 'EPSG:4326', 'EPSG:3338', always_xy := true))
         END AS area_m2
       FROM grouped
+    ),
+    cleaned AS (
+      ${cleanSnapshotSql("shaped")}
     )
     SELECT *, ${attrHashSql("coalesce(geom_wkb, ''::BLOB)")} AS attr_hash
-    FROM shaped
+    FROM cleaned
   `);
 }
 

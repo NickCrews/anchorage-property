@@ -38,6 +38,7 @@ import {
   TRUST_NAME_TOKEN,
   institutionalBaseSql,
 } from "./exemptions.js";
+import { plausibleYearPredicateSql } from "./fields.js";
 import { sqlList, sqlStr } from "./quote.js";
 
 export interface Check {
@@ -200,6 +201,23 @@ export const CHECKS: Check[] = [
     description: "appraisal year within a plausible window",
     sql: `SELECT count(*) FROM lake.parcels_current
           WHERE appraisal_year IS NOT NULL AND (appraisal_year < 1990 OR appraisal_year > 2100)`,
+  },
+  {
+    name: "year_built_plausible",
+    severity: "error",
+    description:
+      "year_built / year_built_min / year_built_max within the plausible window shared with " +
+      "staging (fields.ts) — the source carries sentinels and typos (literal 1, 1190, future " +
+      "years like 2036) and the importer nullifies them",
+    sql: `SELECT count(*) FROM lake.parcels_current
+          WHERE (year_built IS NOT NULL AND NOT ${plausibleYearPredicateSql("year_built")})
+             OR (year_built_min IS NOT NULL AND NOT ${plausibleYearPredicateSql("year_built_min")})
+             OR (year_built_max IS NOT NULL AND NOT ${plausibleYearPredicateSql("year_built_max")})`,
+    sampleSql: `SELECT parcel_id, year_built, year_built_min, year_built_max FROM lake.parcels_current
+                WHERE (year_built IS NOT NULL AND NOT ${plausibleYearPredicateSql("year_built")})
+                   OR (year_built_min IS NOT NULL AND NOT ${plausibleYearPredicateSql("year_built_min")})
+                   OR (year_built_max IS NOT NULL AND NOT ${plausibleYearPredicateSql("year_built_max")})
+                LIMIT 5`,
   },
   {
     name: "source_freshness",
