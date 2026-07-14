@@ -1,4 +1,5 @@
 import type {ColorScaleConfig} from '@sqlrooms/color-scales';
+import {categoricalSchemeColors} from '@sqlrooms/color-scales';
 import {DeckJsonMap} from '@sqlrooms/deck';
 import {
   asc,
@@ -8,10 +9,25 @@ import {
   sql,
   useMosaicClient,
 } from '@sqlrooms/mosaic';
-import {cn, ResolvedTheme, useTheme} from '@sqlrooms/ui';
+import {
+  cn,
+  ResolvedTheme,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  useTheme,
+} from '@sqlrooms/ui';
 import {FC, useMemo, useRef, useState} from 'react';
 import {MAIN_TABLE} from '../../config';
 import {useRoomStore} from '../../store';
+import {
+  COLOR_BY_OPTIONS,
+  ColorByField,
+  formatDollars,
+  resolveColorByOption,
+} from './colorByOptions';
 import {MapControls} from './MapControls';
 import {MapInfoModal} from './MapInfoModal';
 
@@ -30,10 +46,14 @@ const INITIAL_VIEW_STATE = {
   bearing: 0,
 };
 
-const COLOR_FIELD = 'appraised_total_value';
-
-const formatDollars = (v: unknown) =>
-  v == null ? 'n/a' : `$${Number(v).toLocaleString('en-US')}`;
+// Always queried: the tooltip shows these regardless of the color field.
+const BASE_COLUMNS = [
+  'parcel_id',
+  'parcel_address',
+  'owner_name',
+  'property_type',
+  'appraised_total_value',
+];
 
 export const MapView: FC<{className?: string}> = ({className}) => {
   const brush = useRoomStore((state) => state.mosaic.selections.brush);
@@ -52,19 +72,24 @@ export const MapView: FC<{className?: string}> = ({className}) => {
   const setBrushRadius = useRoomStore(
     (state) => state.mapSettings.setBrushRadius,
   );
+  const colorBy = useRoomStore((state) => state.mapSettings.config.colorBy);
+  const setColorBy = useRoomStore((state) => state.mapSettings.setColorBy);
+  const colorByOption = resolveColorByOption(colorBy);
+  const colorField = colorByOption.scale.field;
 
   const lastUpdateRef = useRef<number>(0);
 
   const {data: rawData, client} = useMosaicClient({
+    // useMosaicClient holds `query` in a ref, so switching the color field
+    // must change the id to tear down and rebuild the client.
+    id: `map-parcels-${colorField}`,
     selectionName: 'brush',
     query: (filter: any) =>
       Query.from(MAIN_TABLE)
         .select(
-          'parcel_id',
-          'parcel_address',
-          'owner_name',
-          'property_type',
-          COLOR_FIELD,
+          ...(BASE_COLUMNS.includes(colorField)
+            ? BASE_COLUMNS
+            : [...BASE_COLUMNS, colorField]),
           {
             geom: sql`ST_AsWKB(ST_Point(centroid_lon, centroid_lat))`,
           },
@@ -72,8 +97,10 @@ export const MapView: FC<{className?: string}> = ({className}) => {
         // A single .where() call: the filter param arrives nullish before the
         // first selection, and Mosaic drops null clauses.
         .where(filter, sql`centroid_lon IS NOT NULL`)
-        // Ascending by value so the expensive parcels draw on top.
-        .orderby([asc(column(COLOR_FIELD))]),
+        // Ascending by the color field so high values draw on top; for
+        // categorical fields this also fixes the category → color assignment
+        // to alphabetical order.
+        .orderby([asc(column(colorField))]),
   });
 
   const datasets = useMemo(
@@ -88,27 +115,36 @@ export const MapView: FC<{className?: string}> = ({className}) => {
   );
   const dbReady = rawData !== null;
   const {resolvedTheme} = useTheme();
-  const colorScale = useMemo(() => {
-    return {
-      field: COLOR_FIELD,
-      type: 'sequential',
-      scheme: 'YlOrBr',
-      // Clamped at ~p98 of appraised values; the far tail is a handful of
-      // commercial parcels that would wash out the residential range.
-      domain: [0, 2000000],
-      reverse: resolvedTheme === 'dark',
-      clamp: true,
-    } satisfies ColorScaleConfig;
-  }, [resolvedTheme]);
+  const colorScale = useMemo<ColorScaleConfig>(() => {
+    if (colorByOption.scale.type === 'categorical') {
+      return colorByOption.scale;
+    }
+    return {...colorByOption.scale, reverse: resolvedTheme === 'dark'};
+  }, [colorByOption.scale, resolvedTheme]);
 
-  const legendColorScale = useMemo(
-    () =>
-      ({
-        ...colorScale,
-        legend: {title: 'Appraised total value ($)'},
-      }) satisfies ColorScaleConfig,
-    [colorScale],
-  );
+  // The deck colorScale assigns categorical colors by order of first
+  // appearance in the data (cycling through the scheme); mirror that here so
+  // the legend stays in sync even when cross-filters hide a category.
+  const categoricalSwatches = useMemo(() => {
+    if (colorScale.type !== 'categorical' || !rawData) {
+      return undefined;
+    }
+    const values = rawData.getChild(colorScale.field);
+    if (!values) {
+      return undefined;
+    }
+    const seen = new Set<string>();
+    for (const value of values) {
+      if (value != null) {
+        seen.add(String(value));
+      }
+    }
+    const colors = categoricalSchemeColors[colorScale.scheme];
+    return [...seen].map((label, i) => ({
+      label,
+      color: colors[i % colors.length]!,
+    }));
+  }, [colorScale, rawData]);
 
   const mapSpec = useMemo(
     () => ({
@@ -211,7 +247,11 @@ export const MapView: FC<{className?: string}> = ({className}) => {
                 html: `<div style="font-family:system-ui; font-size:12px; padding:4px;">
                     <strong>${String(object.parcel_address ?? object.parcel_id ?? '')}</strong><br/>
                     ${String(object.owner_name ?? '')}<br/>
-                    ${String(object.property_type ?? '')} · ${formatDollars(object[COLOR_FIELD])}
+                    ${String(object.property_type ?? '')} · ${formatDollars(object.appraised_total_value)}${
+                      BASE_COLUMNS.includes(colorField)
+                        ? ''
+                        : `<br/>${colorByOption.label}: ${colorByOption.formatValue(object[colorField])}`
+                    }
                   </div>`,
               },
           }}
@@ -227,13 +267,56 @@ export const MapView: FC<{className?: string}> = ({className}) => {
           onShowInfo={() => setShowInfo(true)}
         />
 
-        <MosaicColorLegend
-          className="absolute bottom-2 left-2 z-10"
-          colorScale={legendColorScale}
-          selection={brush ?? undefined}
-          tickFormat="~s"
-          width={220}
-        />
+        {/* The dropdown doubles as the legend's title. */}
+        <div className="absolute bottom-2 left-2 z-10 flex w-[244px] flex-col gap-1">
+          <Select
+            value={colorField}
+            // Safe cast: the only selectable values are COLOR_BY_OPTIONS items.
+            onValueChange={(v) => setColorBy(v as ColorByField)}
+          >
+            <SelectTrigger className="bg-card/90 text-card-foreground h-8 w-full border text-xs shadow-lg backdrop-blur">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {COLOR_BY_OPTIONS.map((option) => (
+                <SelectItem
+                  key={option.scale.field}
+                  value={option.scale.field}
+                  className="text-xs"
+                >
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {colorScale.type === 'categorical' ? (
+            categoricalSwatches && (
+              <div className="bg-card/90 text-card-foreground rounded-md border px-3 py-2 text-xs shadow-lg backdrop-blur">
+                {categoricalSwatches.map(({label, color}) => (
+                  <div key={label} className="flex items-center gap-2 py-0.5">
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-sm"
+                      style={{background: color}}
+                    />
+                    {label}
+                  </div>
+                ))}
+              </div>
+            )
+          ) : (
+            <MosaicColorLegend
+              // No title: the dropdown names the field, but the legend would
+              // fall back to the raw column name. Hide the bold svg label and
+              // reclaim its row (ramp starts at y=18 in the 46px viewBox).
+              className="[&_svg]:-mt-3.5 [&_svg>text[font-weight=bold]]:hidden"
+              colorScale={colorScale}
+              selection={brush ?? undefined}
+              tickFormat={colorByOption.tickFormat}
+              width={220}
+            />
+          )}
+        </div>
 
         {showInfo ? <MapInfoModal onClose={() => setShowInfo(false)} /> : null}
       </div>

@@ -8,8 +8,8 @@ export function MapInfoModal({onClose}: MapInfoModalProps) {
       <div className="bg-card text-card-foreground w-96 rounded-md border p-6">
         <div className="space-y-3 text-sm leading-relaxed">
           <p>
-            Every parcel in the Municipality of Anchorage, drawn at its
-            centroid and colored by appraised total value. The data is scraped
+            Every parcel in the Municipality of Anchorage, colored by the
+            field chosen in the controls. The data is scraped
             daily from the muni&apos;s property database; interactions on the
             map and charts cross-filter each other in real time.
           </p>
