@@ -1,6 +1,7 @@
 import type {ColorScaleConfig} from '@sqlrooms/color-scales';
 import {categoricalSchemeColors} from '@sqlrooms/color-scales';
 import {DeckJsonMap} from '@sqlrooms/deck';
+import {Table as ArrowTable, vectorFromArray} from 'apache-arrow';
 import {
   asc,
   column,
@@ -46,6 +47,30 @@ const INITIAL_VIEW_STATE = {
   bearing: 0,
 };
 
+/**
+ * Rebuild a query result as a single record batch.
+ *
+ * DuckDB-wasm streams results in ~2k-row batches, and the GeoArrow deck
+ * layers render one deck.gl sublayer *per batch* — the full parcel set
+ * arrives as ~49 batches, i.e. ~98 fill+stroke sublayers, and panning
+ * becomes CPU-bound on per-layer overhead (~6 fps). One batch → two
+ * sublayers. The rebuild is one pass over the data per query result, the
+ * same order of work as the WKB decoding deck already does with it.
+ */
+function toSingleBatchTable(table: ArrowTable): ArrowTable {
+  if (table.batches.length <= 1) {
+    return table;
+  }
+  return new ArrowTable(
+    Object.fromEntries(
+      table.schema.fields.map((field) => [
+        field.name,
+        vectorFromArray([...table.getChild(field.name)!], field.type),
+      ]),
+    ),
+  );
+}
+
 // Always queried: the tooltip shows these regardless of the color field.
 const BASE_COLUMNS = [
   'parcel_id',
@@ -79,6 +104,16 @@ export const MapView: FC<{className?: string}> = ({className}) => {
 
   const lastUpdateRef = useRef<number>(0);
 
+  // All parcel outlines, never filtered: drawn in grey beneath the colored
+  // layer so brushed-out parcels fade instead of vanishing.
+  const {data: allParcelsData} = useMosaicClient({
+    id: 'map-parcels-all',
+    query: () =>
+      Query.from(MAIN_TABLE)
+        .select({geom: sql`geom_wkb`})
+        .where(sql`geom_wkb IS NOT NULL`),
+  });
+
   const {data: rawData, client} = useMosaicClient({
     // useMosaicClient holds `query` in a ref, so switching the color field
     // must change the id to tear down and rebuild the client.
@@ -105,15 +140,34 @@ export const MapView: FC<{className?: string}> = ({className}) => {
 
   const datasets = useMemo(
     () => ({
+      allParcels: {
+        arrowTable: allParcelsData ?? undefined,
+        geometryColumn: 'geom',
+        geometryEncodingHint: 'wkb' as const,
+      },
       parcels: {
-        arrowTable: rawData ?? undefined,
+        // An empty table must not reach deck: GeoArrow promotion of zero rows
+        // fails the layer's geometry-type check, which silently keeps the
+        // previous parcels on screen. No table renders nothing, which over
+        // the grey base layer is exactly right for "no parcels match".
+        arrowTable:
+          rawData && rawData.numRows > 0
+            ? toSingleBatchTable(rawData)
+            : undefined,
         geometryColumn: 'geom',
         geometryEncodingHint: 'wkb' as const,
       },
     }),
-    [rawData],
+    [allParcelsData, rawData],
   );
   const dbReady = rawData !== null;
+  // Whether cross-filters are excluding any parcels. Derived from the row
+  // counts so it needs no selection-event plumbing, and it stays false when a
+  // filter exists but matches everything (nothing to grey out).
+  const isFiltered =
+    rawData !== null &&
+    allParcelsData !== null &&
+    rawData.numRows < allParcelsData.numRows;
   const {resolvedTheme} = useTheme();
   const colorScale = useMemo<ColorScaleConfig>(() => {
     if (colorByOption.scale.type === 'categorical') {
@@ -152,6 +206,26 @@ export const MapView: FC<{className?: string}> = ({className}) => {
       layers: [
         {
           '@@type': 'GeoArrowPolygonLayer',
+          id: 'parcels-unfiltered',
+          _sqlroomsBinding: {
+            dataset: 'allParcels',
+          },
+          // With no filter the colored layer covers every parcel, and this
+          // layer would only double the polygons deck has to blend each frame.
+          // visible:false skips drawing but keeps the uploaded GPU attributes.
+          visible: isFiltered,
+          getFillColor:
+            resolvedTheme === 'dark' ? [90, 90, 90, 90] : [190, 190, 190, 110],
+          filled: true,
+          stroked: true,
+          getLineColor: [0, 0, 0, 32],
+          getLineWidth: 2,
+          lineWidthUnits: 'meters',
+          lineWidthMaxPixels: 1,
+          pickable: false,
+        },
+        {
+          '@@type': 'GeoArrowPolygonLayer',
           id: 'parcels',
           _sqlroomsBinding: {
             dataset: 'parcels',
@@ -173,7 +247,7 @@ export const MapView: FC<{className?: string}> = ({className}) => {
         },
       ],
     }),
-    [colorScale, enableBrushing],
+    [colorScale, enableBrushing, resolvedTheme, isFiltered],
   );
 
   const clearBrushSelection = () => {
