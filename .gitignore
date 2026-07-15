@@ -5,4 +5,5 @@ dist/
 .env
 __marimo__
 .venv/
-voterfile.csv
+# Raw source data (voterfile, DCCED bulk downloads, etc.) — large, re-acquired out of band
+sources/
