@@ -21,7 +21,7 @@
     "apache-arrow": "17.0.0",
     "immer": "^11.0.1",
     "lucide-react": "^0.555.0",
-    "maplibre-gl": "^5.12.0",
+    "maplibre-gl": "^6.4.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-map-gl": "^8.1.1",

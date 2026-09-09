@@ -64,8 +64,8 @@ importers:
         specifier: ^0.555.0
         version: 0.555.0(react@19.2.7)
       maplibre-gl:
-        specifier: ^5.12.0
-        version: 5.24.0
+        specifier: ^6.4.1
+        version: 6.4.1
       react:
         specifier: ^19.2.0
         version: 19.2.7
@@ -74,7 +74,7 @@ importers:
         version: 19.2.7(react@19.2.7)
       react-map-gl:
         specifier: ^8.1.1
-        version: 8.1.1(maplibre-gl@5.24.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 8.1.1(maplibre-gl@6.4.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       zod:
         specifier: ^4.1.8
         version: 4.4.3
@@ -796,6 +796,9 @@ packages:
   '@mapbox/vector-tile@2.0.5':
     resolution: {integrity: sha512-pXj8m7KTsqZt+1jsE0xIpGvqTSbblfkuEJL/NJmNePMtEwxO8V3XMDo9WMSfDeqHvCtBI9Lmt4mGcGR10zecmw==}
 
+  '@mapbox/vector-tile@3.0.0':
+    resolution: {integrity: sha512-Qf10S1uIHMk20ri/IVBnpS+esUEkVaR5Hftmz88jTInrpmWgPGJfPe3LVjjlE77trLx8tH6qjTG7uWH9hIq/0Q==}
+
   '@mapbox/whoots-js@3.1.0':
     resolution: {integrity: sha512-Es6WcD0nO5l+2BOQS4uLfNPYQaNDfbot3X1XUoloz+x0mPDS3eeORZJl06HXjwBG1fOGwCRnzK88LMdxKRrd6Q==}
     engines: {node: '>=6.0.0'}
@@ -811,8 +814,15 @@ packages:
     resolution: {integrity: sha512-lichxSiagMEBBrqHF0trtMQH9RKh+9jUlIJl0qW0QHvt2H/tbvUWdE+ZzI2Jd0/pT7j/iavLonlPu7EQ/ixTOw==}
     hasBin: true
 
+  '@maplibre/maplibre-gl-style-spec@26.4.2':
+    resolution: {integrity: sha512-6J0vZqMZvRAJKtdWJdDGHEh1YJ2ZHG08/GOur8gCArYhO8ZkM//OXqtI2AAEz4jc2G+Wq4MfcePg8qNK5TZ4Kg==}
+    hasBin: true
+
   '@maplibre/mlt@1.1.12':
     resolution: {integrity: sha512-ZeK5w2TTeHOajcLaEQs1KZXw2V9wIKo1PmThlxlsHoXsQsYlBqLJzPOd6tJHRtGTChUY3DPPmjXRArYVvAbmZw==}
+
+  '@maplibre/mlt@1.2.1':
+    resolution: {integrity: sha512-5n5dgolE2EYxwCKgx8vlwURCB8A+kyfJJyThlYimjlGgOcOe2Bhw9VxxnnHC91OC9PgHg+nVdgVPTYPkIo62vg==}
 
   '@maplibre/vt-pbf@4.3.2':
     resolution: {integrity: sha512-j6p0AdjvAR19Z3XaCysle7A4ZSo08tYOzxD0Y9NQylwPAkwJJeYub5b2eVucdeDh7erhv69DahoLOevDRERRUw==}
@@ -3015,6 +3025,10 @@ packages:
     resolution: {integrity: sha512-ALyFxgtd5R+65UqZ/++lOqwWcC0SNho9c27fYSyLmG7AfnAul2o46F05aDJGPbFU57wos9dgcIySHs0Xe6ia3A==}
     engines: {node: '>=16.14.0', npm: '>=8.1.0'}
 
+  maplibre-gl@6.4.1:
+    resolution: {integrity: sha512-KzxQKtfBu/pSz1C+yW1hNS9eyj2h2lC7ufdAi6/SEt177n3oAfDfmUmslRfJdXY7ReAFBcnvwsqmiyoDhtA9GQ==}
+    engines: {node: '>=16.14.0', npm: '>=8.1.0'}
+
   markdown-table@3.0.4:
     resolution: {integrity: sha512-wiYz4+JrLyb/DqW2hkFJxP7Vd7JuTDm77fvbM8VfEQdmSMqcImWeeRbHwZjBjIFki/VaMK2BhFi7oUUZeM5bqw==}
 
@@ -3373,6 +3387,7 @@ packages:
 
   react-grid-layout@1.5.3:
     resolution: {integrity: sha512-KaG6IbjD6fYhagUtIvOzhftXG+ViKZjCjADe86X1KHl7C/dsBN2z0mi14nbvZKTkp0RKiil9RPcJBgq3LnoA8g==}
+    deprecated: 'Ships stray files that were never in the repo: an ip_fetcher binary and its curl-sample source (1.5.0-1.5.3), plus a yarn-error.log containing local paths (1.5.3). Upgrade to 1.5.4, which is byte-identical apart from removing them. See https://github.com/react-grid-layout/react-grid-layout/issues/2269'
     peerDependencies:
       react: '>= 16.3.0'
       react-dom: '>= 16.3.0'
@@ -4178,8 +4193,6 @@ snapshots:
       '@types/offscreencanvas': 2019.7.3
       gl-matrix: 3.4.4
       mjolnir.js: 3.0.1
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@deck.gl/extensions@9.3.6(@deck.gl/core@9.3.6)(@luma.gl/core@9.3.6)(@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6)))':
     dependencies:
@@ -4239,8 +4252,6 @@ snapshots:
       '@math.gl/web-mercator': 4.1.0
       '@types/geojson': 7946.0.16
       earcut: 2.2.4
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@deck.gl/mapbox@9.3.6(@deck.gl/core@9.3.6)(@luma.gl/core@9.3.6)(@math.gl/web-mercator@4.1.0)':
     dependencies:
@@ -4258,7 +4269,6 @@ snapshots:
       '@luma.gl/gltf': 9.3.6(@luma.gl/core@9.3.6)(@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6)))(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6))
       '@luma.gl/shadertools': 9.3.6(@luma.gl/core@9.3.6)
     transitivePeerDependencies:
-      - '@75lb/nature'
       - '@loaders.gl/core'
 
   '@deck.gl/react@9.3.6(@deck.gl/core@9.3.6)(@deck.gl/widgets@9.3.6(@deck.gl/core@9.3.6)(@luma.gl/core@9.3.6))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
@@ -4573,8 +4583,6 @@ snapshots:
       '@math.gl/geospatial': 4.1.0
       '@probe.gl/log': 4.1.1
       long: 5.3.2
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/compression@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4590,8 +4598,6 @@ snapshots:
       brotli: 1.3.3
       lz4js: 0.2.0
       zstd-codec: 0.1.5
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/core@4.4.3':
     dependencies:
@@ -4600,8 +4606,6 @@ snapshots:
       '@loaders.gl/schema-utils': 4.4.3(@loaders.gl/core@4.4.3)
       '@loaders.gl/worker-utils': 4.4.3(@loaders.gl/core@4.4.3)
       '@probe.gl/log': 4.1.1
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/crypto@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4609,8 +4613,6 @@ snapshots:
       '@loaders.gl/loader-utils': 4.4.3(@loaders.gl/core@4.4.3)
       '@loaders.gl/worker-utils': 4.4.3(@loaders.gl/core@4.4.3)
       '@types/crypto-js': 4.2.2
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/draco@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4620,8 +4622,6 @@ snapshots:
       '@loaders.gl/schema-utils': 4.4.3(@loaders.gl/core@4.4.3)
       '@loaders.gl/worker-utils': 4.4.3(@loaders.gl/core@4.4.3)
       draco3d: 1.5.7
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/geoarrow@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4653,15 +4653,11 @@ snapshots:
       '@loaders.gl/schema': 4.4.3
       '@loaders.gl/textures': 4.4.3(@loaders.gl/core@4.4.3)
       '@math.gl/core': 4.1.0
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/images@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
       '@loaders.gl/core': 4.4.3
       '@loaders.gl/loader-utils': 4.4.3(@loaders.gl/core@4.4.3)
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/loader-utils@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4670,7 +4666,6 @@ snapshots:
       '@probe.gl/log': 4.1.1
       '@probe.gl/stats': 4.1.1
     transitivePeerDependencies:
-      - '@75lb/nature'
       - '@loaders.gl/core'
 
   '@loaders.gl/math@4.4.3(@loaders.gl/core@4.4.3)':
@@ -4696,16 +4691,12 @@ snapshots:
       '@loaders.gl/core': 4.4.3
       '@loaders.gl/schema': 4.4.3
       '@types/geojson': 7946.0.16
-      apache-arrow: 21.1.0
-    transitivePeerDependencies:
-      - '@75lb/nature'
+      apache-arrow: 17.0.0
 
   '@loaders.gl/schema@4.4.3':
     dependencies:
       '@types/geojson': 7946.0.16
-      apache-arrow: 21.1.0
-    transitivePeerDependencies:
-      - '@75lb/nature'
+      apache-arrow: 17.0.0
 
   '@loaders.gl/terrain@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4714,8 +4705,6 @@ snapshots:
       '@loaders.gl/loader-utils': 4.4.3(@loaders.gl/core@4.4.3)
       '@loaders.gl/schema': 4.4.3
       '@mapbox/martini': 0.2.0
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/textures@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4727,8 +4716,6 @@ snapshots:
       '@math.gl/types': 4.1.0
       ktx-parse: 0.7.1
       texture-compressor: 1.0.2
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/tiles@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4740,8 +4727,6 @@ snapshots:
       '@math.gl/geospatial': 4.1.0
       '@math.gl/web-mercator': 4.1.0
       '@probe.gl/stats': 4.1.1
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/wkt@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4761,8 +4746,6 @@ snapshots:
       '@loaders.gl/xml': 4.4.3(@loaders.gl/core@4.4.3)
       '@turf/rewind': 5.1.5
       deep-strict-equal: 0.2.0
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/worker-utils@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4774,8 +4757,6 @@ snapshots:
       '@loaders.gl/loader-utils': 4.4.3(@loaders.gl/core@4.4.3)
       '@loaders.gl/schema': 4.4.3
       fast-xml-parser: 5.10.0
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@loaders.gl/zip@4.4.3(@loaders.gl/core@4.4.3)':
     dependencies:
@@ -4785,8 +4766,6 @@ snapshots:
       '@loaders.gl/loader-utils': 4.4.3(@loaders.gl/core@4.4.3)
       jszip: 3.10.1
       md5: 2.3.0
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@luma.gl/core@9.3.6':
     dependencies:
@@ -4814,8 +4793,6 @@ snapshots:
       '@luma.gl/engine': 9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6))
       '@luma.gl/shadertools': 9.3.6(@luma.gl/core@9.3.6)
       '@math.gl/core': 4.1.0
-    transitivePeerDependencies:
-      - '@75lb/nature'
 
   '@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6)':
     dependencies:
@@ -4853,6 +4830,12 @@ snapshots:
       '@types/geojson': 7946.0.16
       pbf: 4.0.2
 
+  '@mapbox/vector-tile@3.0.0':
+    dependencies:
+      '@mapbox/point-geometry': 1.1.0
+      '@types/geojson': 7946.0.16
+      pbf: 5.1.2
+
   '@mapbox/whoots-js@3.1.0': {}
 
   '@maplibre/geojson-vt@6.1.1':
@@ -4877,7 +4860,20 @@ snapshots:
       quickselect: 3.0.0
       tinyqueue: 3.0.0
 
+  '@maplibre/maplibre-gl-style-spec@26.4.2':
+    dependencies:
+      '@mapbox/jsonlint-lines-primitives': 2.0.3
+      '@mapbox/unitbezier': 1.0.0
+      json-stringify-pretty-compact: 4.0.0
+      minimist: 1.2.8
+      quickselect: 3.0.0
+      tinyqueue: 3.0.0
+
   '@maplibre/mlt@1.1.12':
+    dependencies:
+      '@mapbox/point-geometry': 1.1.0
+
+  '@maplibre/mlt@1.2.1':
     dependencies:
       '@mapbox/point-geometry': 1.1.0
 
@@ -6573,6 +6569,14 @@ snapshots:
     optionalDependencies:
       maplibre-gl: 5.24.0
 
+  '@vis.gl/react-maplibre@8.1.1(maplibre-gl@6.4.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+    dependencies:
+      '@maplibre/maplibre-gl-style-spec': 19.3.3
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+    optionalDependencies:
+      maplibre-gl: 6.4.1
+
   '@vitejs/plugin-react@5.2.0(vite@8.1.3(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))':
     dependencies:
       '@babel/core': 7.29.7
@@ -7394,6 +7398,26 @@ snapshots:
       quickselect: 3.0.0
       tinyqueue: 3.0.0
 
+  maplibre-gl@6.4.1:
+    dependencies:
+      '@mapbox/point-geometry': 1.1.0
+      '@mapbox/tiny-sdf': 2.2.0
+      '@mapbox/unitbezier': 1.0.0
+      '@mapbox/vector-tile': 3.0.0
+      '@maplibre/geojson-vt': 6.1.1
+      '@maplibre/maplibre-gl-style-spec': 26.4.2
+      '@maplibre/mlt': 1.2.1
+      '@maplibre/vt-pbf': 4.3.2
+      '@types/geojson': 7946.0.16
+      earcut: 3.2.3
+      gl-matrix: 3.4.4
+      kdbush: 4.1.0
+      murmurhash-js: 1.0.0
+      pbf: 5.1.2
+      potpack: 2.1.0
+      quickselect: 3.0.0
+      tinyqueue: 3.0.0
+
   markdown-table@3.0.4: {}
 
   marked@14.0.0: {}
@@ -8004,6 +8028,15 @@ snapshots:
       react-dom: 19.2.7(react@19.2.7)
     optionalDependencies:
       maplibre-gl: 5.24.0
+
+  react-map-gl@8.1.1(maplibre-gl@6.4.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
+    dependencies:
+      '@vis.gl/react-mapbox': 8.1.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@vis.gl/react-maplibre': 8.1.1(maplibre-gl@6.4.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+    optionalDependencies:
+      maplibre-gl: 6.4.1
 
   react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.7):
     dependencies:
