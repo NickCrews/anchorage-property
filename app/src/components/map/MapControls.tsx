@@ -1,5 +1,5 @@
-import {Flashlight, MousePointer2, Info} from 'lucide-react';
-import {Skeleton} from '@sqlrooms/ui';
+import { Flashlight, MousePointer2 } from 'lucide-react';
+import { Skeleton } from '@sqlrooms/ui';
 
 interface MapControlsProps {
   dbReady: boolean;
@@ -8,7 +8,6 @@ interface MapControlsProps {
   brushRadius: number;
   setBrushRadius: (v: number) => void;
   clearBrush: () => void;
-  onShowInfo: () => void;
 }
 
 export function MapControls({
@@ -18,7 +17,6 @@ export function MapControls({
   brushRadius,
   setBrushRadius,
   clearBrush,
-  onShowInfo,
 }: MapControlsProps) {
   return (
     <div className="bg-card/90 text-card-foreground absolute top-4 right-4 z-50 flex w-64 flex-col gap-4 rounded-sm border p-2 shadow-xl backdrop-blur">
@@ -34,11 +32,10 @@ export function MapControls({
           <>
             <button
               onClick={clearBrush}
-              className={`flex flex-1 items-center justify-center gap-2 rounded p-2 ${
-                !enableBrushing
-                  ? 'bg-[#e67f5f] text-white'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-              }`}
+              className={`flex flex-1 items-center justify-center gap-2 rounded p-2 ${!enableBrushing
+                ? 'bg-[#e67f5f] text-white'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                }`}
             >
               <MousePointer2 size={16} />
               <span className="text-xs font-medium">View</span>
@@ -46,21 +43,13 @@ export function MapControls({
 
             <button
               onClick={() => setEnableBrushing(true)}
-              className={`flex flex-1 items-center justify-center gap-2 rounded p-2 ${
-                enableBrushing
-                  ? 'bg-[#e67f5f] text-white'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-              }`}
+              className={`flex flex-1 items-center justify-center gap-2 rounded p-2 ${enableBrushing
+                ? 'bg-[#e67f5f] text-white'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                }`}
             >
               <Flashlight size={16} />
-              <span className="text-xs font-medium">Brush</span>
-            </button>
-
-            <button
-              onClick={onShowInfo}
-              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground rounded p-2"
-            >
-              <Info size={16} />
+              <span className="text-xs font-medium">Filter</span>
             </button>
           </>
         )}

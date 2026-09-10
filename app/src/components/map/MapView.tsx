@@ -1,7 +1,7 @@
-import type {ColorScaleConfig} from '@sqlrooms/color-scales';
-import {categoricalSchemeColors} from '@sqlrooms/color-scales';
-import {DeckJsonMap} from '@sqlrooms/deck';
-import {Table as ArrowTable, vectorFromArray} from 'apache-arrow';
+import type { ColorScaleConfig } from '@sqlrooms/color-scales';
+import { categoricalSchemeColors } from '@sqlrooms/color-scales';
+import { DeckJsonMap } from '@sqlrooms/deck';
+import { Table as ArrowTable, vectorFromArray } from 'apache-arrow';
 import {
   asc,
   column,
@@ -20,17 +20,16 @@ import {
   SelectValue,
   useTheme,
 } from '@sqlrooms/ui';
-import {FC, useMemo, useRef, useState} from 'react';
-import {MAIN_TABLE} from '../../config';
-import {useRoomStore} from '../../store';
+import { FC, useMemo, useRef } from 'react';
+import { MAIN_TABLE } from '../../config';
+import { useRoomStore } from '../../store';
 import {
   COLOR_BY_OPTIONS,
   ColorByField,
   formatDollars,
   resolveColorByOption,
 } from './colorByOptions';
-import {MapControls} from './MapControls';
-import {MapInfoModal} from './MapInfoModal';
+import { MapControls } from './MapControls';
 
 const MAP_STYLES: Record<ResolvedTheme, string> = {
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
@@ -80,10 +79,8 @@ const BASE_COLUMNS = [
   'appraised_total_value',
 ];
 
-export const MapView: FC<{className?: string}> = ({className}) => {
+export const MapView: FC<{ className?: string }> = ({ className }) => {
   const brush = useRoomStore((state) => state.mosaic.selections.brush);
-
-  const [showInfo, setShowInfo] = useState(false);
 
   const enableBrushing = useRoomStore(
     (state) => state.mapSettings.config.enableBrushing,
@@ -106,15 +103,15 @@ export const MapView: FC<{className?: string}> = ({className}) => {
 
   // All parcel outlines, never filtered: drawn in grey beneath the colored
   // layer so brushed-out parcels fade instead of vanishing.
-  const {data: allParcelsData} = useMosaicClient({
+  const { data: allParcelsData } = useMosaicClient({
     id: 'map-parcels-all',
     query: () =>
       Query.from(MAIN_TABLE)
-        .select({geom: sql`geom_wkb`})
+        .select({ geom: sql`geom_wkb` })
         .where(sql`geom_wkb IS NOT NULL`),
   });
 
-  const {data: rawData, client} = useMosaicClient({
+  const { data: rawData, client } = useMosaicClient({
     // useMosaicClient holds `query` in a ref, so switching the color field
     // must change the id to tear down and rebuild the client.
     id: `map-parcels-${colorField}`,
@@ -168,12 +165,12 @@ export const MapView: FC<{className?: string}> = ({className}) => {
     rawData !== null &&
     allParcelsData !== null &&
     rawData.numRows < allParcelsData.numRows;
-  const {resolvedTheme} = useTheme();
+  const { resolvedTheme } = useTheme();
   const colorScale = useMemo<ColorScaleConfig>(() => {
     if (colorByOption.scale.type === 'categorical') {
       return colorByOption.scale;
     }
-    return {...colorByOption.scale, reverse: resolvedTheme === 'dark'};
+    return { ...colorByOption.scale, reverse: resolvedTheme === 'dark' };
   }, [colorByOption.scale, resolvedTheme]);
 
   // The deck colorScale assigns categorical colors by order of first
@@ -260,7 +257,7 @@ export const MapView: FC<{className?: string}> = ({className}) => {
     }
   };
 
-  const onHover = (info: {coordinate?: [number, number]}) => {
+  const onHover = (info: { coordinate?: [number, number] }) => {
     if (!enableBrushing || !client) {
       return;
     }
@@ -318,17 +315,16 @@ export const MapView: FC<{className?: string}> = ({className}) => {
           }}
           deckProps={{
             onHover: onHover as any,
-            getTooltip: ({object}: {object?: any}) =>
+            getTooltip: ({ object }: { object?: any }) =>
               !enableBrushing &&
               object && {
                 html: `<div style="font-family:system-ui; font-size:12px; padding:4px;">
                     <strong>${String(object.parcel_address ?? object.parcel_id ?? '')}</strong><br/>
                     ${String(object.owner_name ?? '')}<br/>
-                    ${String(object.property_type ?? '')} · ${formatDollars(object.appraised_total_value)}${
-                      BASE_COLUMNS.includes(colorField)
-                        ? ''
-                        : `<br/>${colorByOption.label}: ${colorByOption.formatValue(object[colorField])}`
-                    }
+                    ${String(object.property_type ?? '')} · ${formatDollars(object.appraised_total_value)}${BASE_COLUMNS.includes(colorField)
+                    ? ''
+                    : `<br/>${colorByOption.label}: ${colorByOption.formatValue(object[colorField])}`
+                  }
                   </div>`,
               },
           }}
@@ -341,7 +337,6 @@ export const MapView: FC<{className?: string}> = ({className}) => {
           brushRadius={brushRadius}
           setBrushRadius={setBrushRadius}
           clearBrush={clearBrush}
-          onShowInfo={() => setShowInfo(true)}
         />
 
         {/* The dropdown doubles as the legend's title. */}
@@ -370,11 +365,11 @@ export const MapView: FC<{className?: string}> = ({className}) => {
           {colorScale.type === 'categorical' ? (
             categoricalSwatches && (
               <div className="bg-card/90 text-card-foreground rounded-md border px-3 py-2 text-xs shadow-lg backdrop-blur">
-                {categoricalSwatches.map(({label, color}) => (
+                {categoricalSwatches.map(({ label, color }) => (
                   <div key={label} className="flex items-center gap-2 py-0.5">
                     <span
                       className="h-3 w-3 shrink-0 rounded-sm"
-                      style={{background: color}}
+                      style={{ background: color }}
                     />
                     {label}
                   </div>
@@ -394,8 +389,6 @@ export const MapView: FC<{className?: string}> = ({className}) => {
             />
           )}
         </div>
-
-        {showInfo ? <MapInfoModal onClose={() => setShowInfo(false)} /> : null}
       </div>
     </div>
   );
