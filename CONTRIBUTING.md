@@ -4,7 +4,8 @@ This repo is a daily scraper for the Municipality of Anchorage property
 database into a plain DuckDB database with full SCD2 history, published as
 two `.duckdb` files on Cloudflare R2. Consumers of the published files don't
 need any of this — see the [README](README.md). This document covers running,
-developing, and publishing the pipeline.
+developing, and publishing the pipeline, and developing and deploying the
+browser app that reads it.
 
 ## How the scrape works
 
@@ -133,6 +134,7 @@ pnpm run audit       # data-quality audit of the workspace (or pass paths/URLs, 
 pnpm push            # error-severity gate + compare-and-swap upload of both files
 pnpm test            # code tests: offline SCD2 merge against a throwaway database
 pnpm sql -- "SELECT ... FROM lake.parcels_current LIMIT 5"   # ad-hoc queries
+pnpm run app         # dev server for the browser app (see below)
 ```
 
 There are no `:prod` script variants: `src/config.ts` loads `.env`
@@ -157,6 +159,60 @@ is just the verb sequence:
 
 (That is exactly what [.github/workflows/daily-refresh.yml](.github/workflows/daily-refresh.yml)
 runs, one verb per step.)
+
+## The parcel explorer app
+
+[`app/`](app/) is the browser data app published at
+<https://nickcrews.github.io/anchorage-property/> — a
+[SQLRooms](https://sqlrooms.org/) room (deck.gl parcel map, cross-filtered
+Mosaic charts, profiler table, SQL editor) on duckdb-wasm, no backend. It is a
+pnpm workspace member, so the root `pnpm install` covers it.
+
+```sh
+pnpm run app             # vite dev server (usually :5173)
+pnpm --dir app build     # production build into app/dist
+pnpm --dir app preview   # serve that build locally
+pnpm --dir app typecheck
+```
+
+Which database the app attaches is decided in
+[app/src/config.ts](app/src/config.ts):
+
+- **dev** serves the *local* workspace's browser artifact at
+  `/anchorage-current.duckdb` — see the `serve-local-artifact` plugin in
+  [app/vite.config.ts](app/vite.config.ts) — so the app explores exactly what
+  your last `pnpm ingest` produced, rather than a published copy that can lag
+  behind a schema change. Run `pnpm pull` (or `pnpm ingest`) first, or the dev
+  server answers 404 with that instruction. `WORKSPACE=<name>` picks whose
+  artifact is served.
+- **production builds** read the published browser file on R2.
+- **`VITE_DATA_URL`** overrides both, e.g. to point a dev server at prod:
+
+  ```sh
+  VITE_DATA_URL=https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb pnpm run app
+  ```
+
+The app copies the attached file into memory once and queries locally after
+that, so it wants the browser artifact (~36 MB), never the full archive —
+duckdb-wasm downloads an attached file whole and never range-reads.
+
+### Deploying the app
+
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml) builds `app/` and
+publishes it to GitHub Pages on every push to `main`, plus on demand via
+`workflow_dispatch`. It needs **Settings → Pages → Source: GitHub Actions** on
+the repo, once.
+
+vite's `base` is `'./'`, so the build's asset URLs are relative: the same
+`dist/` works under the `/anchorage-property/` Pages subpath, under a custom
+domain, and under `pnpm --dir app preview`, with no build-time knowledge of
+where it will be served.
+
+Deploying ships *code only*. The data is fetched at runtime from R2, which
+works cross-origin because the `r2.dev` public URL sends
+`Access-Control-Allow-Origin: *` (see the CORS note under [Publishing to
+Cloudflare R2](#publishing-to-cloudflare-r2)) — so a daily refresh reaches the
+live app with no redeploy, and a redeploy never touches the data.
 
 ## Layout
 

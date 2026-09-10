@@ -37,19 +37,27 @@ no matter how large the archive grows).
 
 ## The parcel explorer app
 
-[`app/`](app/) is a browser data app for exploring the dataset — a
-[SQLRooms](https://sqlrooms.org/) room with a deck.gl parcel map, cross-filtered
-[Mosaic](https://idl.uw.edu/mosaic/) charts, a profiler table, and a SQL
-editor, all running on duckdb-wasm with no backend. It attaches the browser
-file above and copies it into memory once; every interaction after that is a
-local query.
+**→ [nickcrews.github.io/anchorage-property](https://nickcrews.github.io/anchorage-property/)**
 
-```sh
-pnpm run app   # dev server against workspaces/<WORKSPACE>/anchorage-current.duckdb
-```
+Every parcel in the municipality on one map, in your browser. No install, no
+account, no API key — the same "nothing to set up" as the SQL above.
 
-Production builds (`pnpm --dir app build`) read the published browser file
-instead.
+- **Colour the map** by appraised total / land / building value, taxable value,
+  year built, or property type.
+- **Brush the charts to filter the map** — appraised value, year built, deed
+  date, land vs building value. Parcels filtered out grey away instead of
+  vanishing, so you keep the city as context.
+- **Hover a parcel** for its address, owner, property type, and appraised
+  value, and read the table below for the whole current selection — owner,
+  zoning, land use, values, exemptions, year built, deed date.
+- **Drop into SQL** whenever the UI runs out of road; it is the same DuckDB
+  underneath, so the queries below work verbatim.
+
+It is a [SQLRooms](https://sqlrooms.org/) room — deck.gl map, cross-filtered
+[Mosaic](https://idl.uw.edu/mosaic/) charts, a profiler table, a SQL editor —
+running entirely on duckdb-wasm with no backend. It downloads the browser file
+above (~36 MB) once and copies it into memory; every pan, filter, and query
+after that runs locally on your machine, and nothing you do is sent anywhere.
 
 ## What's in the archive
 
@@ -212,5 +220,5 @@ OGC-invalid rings.
 
 ## Contributing
 
-Want to run the pipeline yourself, develop on it, or publish your own copy?
+Want to run the pipeline yourself, hack on the app, or publish your own copy?
 See [CONTRIBUTING.md](CONTRIBUTING.md).
