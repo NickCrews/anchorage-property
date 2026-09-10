@@ -10,25 +10,11 @@ import {
   sql,
   useMosaicClient,
 } from '@sqlrooms/mosaic';
-import {
-  cn,
-  ResolvedTheme,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  useTheme,
-} from '@sqlrooms/ui';
+import {cn, ResolvedTheme, useTheme} from '@sqlrooms/ui';
 import { FC, useMemo, useRef } from 'react';
 import { MAIN_TABLE } from '../../config';
 import { useRoomStore } from '../../store';
-import {
-  COLOR_BY_OPTIONS,
-  ColorByField,
-  formatDollars,
-  resolveColorByOption,
-} from './colorByOptions';
+import {formatDollars, resolveColorByOption} from './colorByOptions';
 import { MapControls } from './MapControls';
 
 const MAP_STYLES: Record<ResolvedTheme, string> = {
@@ -332,6 +318,42 @@ export const MapView: FC<{ className?: string }> = ({ className }) => {
 
         <MapControls
           dbReady={dbReady}
+          colorBy={colorField}
+          setColorBy={setColorBy}
+          legend={
+            colorScale.type === 'categorical' ? (
+              categoricalSwatches && (
+                <div className="max-h-44 overflow-y-auto text-xs">
+                  {categoricalSwatches.map(({label, color}) => (
+                    <div key={label} className="flex items-center gap-2 py-0.5">
+                      <span
+                        className="h-3 w-3 shrink-0 rounded-sm"
+                        style={{background: color}}
+                      />
+                      <span className="truncate">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : (
+              <MosaicColorLegend
+                // The legend ships as its own floating card; strip that chrome
+                // so the ramp reads as one more row of the map control card.
+                // No title either: the dropdown names the field, and the legend
+                // would fall back to the raw column name. Hiding the bold svg
+                // label reclaims its row (ramp starts at y=18 in a 46px viewBox).
+                className={cn(
+                  'border-0 bg-transparent p-0 text-inherit shadow-none backdrop-blur-none',
+                  'dark:bg-transparent dark:text-inherit',
+                  '[&_svg]:-mt-3.5 [&_svg>text[font-weight=bold]]:hidden',
+                )}
+                colorScale={colorScale}
+                selection={brush ?? undefined}
+                tickFormat={colorByOption.tickFormat}
+                width={224}
+              />
+            )
+          }
           enableBrushing={enableBrushing}
           setEnableBrushing={setEnableBrushing}
           brushRadius={brushRadius}
@@ -339,56 +361,6 @@ export const MapView: FC<{ className?: string }> = ({ className }) => {
           clearBrush={clearBrush}
         />
 
-        {/* The dropdown doubles as the legend's title. */}
-        <div className="absolute bottom-2 left-2 z-10 flex w-[244px] flex-col gap-1">
-          <Select
-            value={colorField}
-            // Safe cast: the only selectable values are COLOR_BY_OPTIONS items.
-            onValueChange={(v) => setColorBy(v as ColorByField)}
-          >
-            <SelectTrigger className="bg-card/90 text-card-foreground h-8 w-full border text-xs shadow-lg backdrop-blur">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {COLOR_BY_OPTIONS.map((option) => (
-                <SelectItem
-                  key={option.scale.field}
-                  value={option.scale.field}
-                  className="text-xs"
-                >
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {colorScale.type === 'categorical' ? (
-            categoricalSwatches && (
-              <div className="bg-card/90 text-card-foreground rounded-md border px-3 py-2 text-xs shadow-lg backdrop-blur">
-                {categoricalSwatches.map(({ label, color }) => (
-                  <div key={label} className="flex items-center gap-2 py-0.5">
-                    <span
-                      className="h-3 w-3 shrink-0 rounded-sm"
-                      style={{ background: color }}
-                    />
-                    {label}
-                  </div>
-                ))}
-              </div>
-            )
-          ) : (
-            <MosaicColorLegend
-              // No title: the dropdown names the field, but the legend would
-              // fall back to the raw column name. Hide the bold svg label and
-              // reclaim its row (ramp starts at y=18 in the 46px viewBox).
-              className="[&_svg]:-mt-3.5 [&_svg>text[font-weight=bold]]:hidden"
-              colorScale={colorScale}
-              selection={brush ?? undefined}
-              tickFormat={colorByOption.tickFormat}
-              width={220}
-            />
-          )}
-        </div>
       </div>
     </div>
   );
