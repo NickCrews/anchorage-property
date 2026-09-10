@@ -39,25 +39,10 @@ no matter how large the archive grows).
 
 **→ [nickcrews.github.io/anchorage-property](https://nickcrews.github.io/anchorage-property/)**
 
-Every parcel in the municipality on one map, in your browser. No install, no
-account, no API key — the same "nothing to set up" as the SQL above.
-
-- **Colour the map** by appraised total / land / building value, taxable value,
-  year built, or property type.
-- **Brush the charts to filter the map** — appraised value, year built, deed
-  date, land vs building value. Parcels filtered out grey away instead of
-  vanishing, so you keep the city as context.
-- **Hover a parcel** for its address, owner, property type, and appraised
-  value, and read the table below for the whole current selection — owner,
-  zoning, land use, values, exemptions, year built, deed date.
-- **Drop into SQL** whenever the UI runs out of road; it is the same DuckDB
-  underneath, so the queries below work verbatim.
-
-It is a [SQLRooms](https://sqlrooms.org/) room — deck.gl map, cross-filtered
-[Mosaic](https://idl.uw.edu/mosaic/) charts, a profiler table, a SQL editor —
-running entirely on duckdb-wasm with no backend. It downloads the browser file
-above (~36 MB) once and copies it into memory; every pan, filter, and query
-after that runs locally on your machine, and nothing you do is sent anywhere.
+Every parcel in the municipality on one map. Colour it by appraised value, year
+built, or property type; drag on a chart to filter; hover a parcel for its owner
+and value; drop into SQL when you want more. Nothing to install and no account —
+after a one-time ~36 MB download it all runs in your browser.
 
 ## What's in the archive
 
