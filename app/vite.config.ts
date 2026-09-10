@@ -58,5 +58,8 @@ function serveLocalArtifact(): Plugin {
 }
 
 export default defineConfig({
+  // Relative asset URLs, so a build works wherever it is served from: the
+  // repo-name subpath on GitHub Pages, a custom domain, or file://.
+  base: './',
   plugins: [react(), tailwindcss(), serveLocalArtifact()],
 });
