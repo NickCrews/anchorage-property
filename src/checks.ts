@@ -536,7 +536,7 @@ export const CHECKS: Check[] = [
                 LIMIT 5`,
   },
   // -------------------------------------------------------------------------
-  // Girdwood: executable proof of the README's classification example,
+  // Girdwood: executable proof of DATABASE.md's classification example,
   // tax_district = '4' (the Girdwood Valley Service Area). The data drifts
   // daily, so counts are asserted as tolerant invariants; exact figures as of
   // 2026-07-05 are noted per check. Warn-severity: a shifted boundary is a

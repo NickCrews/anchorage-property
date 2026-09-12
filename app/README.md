@@ -1,6 +1,6 @@
 # Anchorage Parcel Explorer
 
-A browser data app for exploring the [anchorage-parcel-lake](../README.md)
+A browser data app for exploring the [anchorage-parcel-lake](../DATABASE.md)
 dataset: every parcel in the Municipality of Anchorage on a deck.gl map,
 cross-filtered Mosaic charts, a profiler table, and a full SQL editor — all
 running on duckdb-wasm in the browser, with no backend.

@@ -52,7 +52,7 @@ def _(alt, duckdb, mo):
         " AS lake (READ_ONLY);"
     )
 
-    # The two example classifications from the README.
+    # The two example classifications from DATABASE.md.
     AREA_CASE = (
         "CASE WHEN tax_district = '4' THEN 'Girdwood' ELSE 'Rest of the Muni' END"
     )

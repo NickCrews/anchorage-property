@@ -3,7 +3,7 @@
 This repo is a daily scraper for the Municipality of Anchorage property
 database into a plain DuckDB database with full SCD2 history, published as
 two `.duckdb` files on Cloudflare R2. Consumers of the published files don't
-need any of this — see the [README](README.md). This document covers running,
+need any of this — see [DATABASE.md](DATABASE.md). This document covers running,
 developing, and publishing the pipeline, and developing and deploying the
 browser app that reads it.
 
@@ -309,7 +309,7 @@ outside the Anchorage bbox, stale ingest, browser artifact out of sync with
 the archive) or `warn` (real-world dirtiness tolerated up to an allowance —
 a couple of ~1 m² sliver parcels, a few OGC-invalid rings — plus drift
 tripwires: the exemption catalog in [src/exemptions.ts](src/exemptions.ts),
-the taxable-value NULL/0 semantics, and the README's Girdwood classification
+the taxable-value NULL/0 semantics, and DATABASE.md's Girdwood classification
 claims; upstream drift should page a human, not block the nightly publish). Error-severity
 failures fail the run so cron/CI can alert; warn-severity overruns log a
 warning but still pass. All timestamps are naive UTC throughout — DQ time
